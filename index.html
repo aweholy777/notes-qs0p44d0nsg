@@ -104,6 +104,7 @@
     <button class="tb" id="fit">⤢ 適配</button>
   </div>
   <div class="grp" id="grp-kanban" style="display:none">
+    <button class="tb" id="backwb">← 白板</button>
     <button class="tb kanbtn" id="addcol">＋ 欄位</button>
   </div>
   <input id="search" placeholder="🔍 搜尋…">
@@ -161,7 +162,7 @@ const $=s=>document.querySelector(s);
 const stage=$("#stage"),world=$("#world"),wires=$("#wires"),kan=$("#kanban");
 const PALETTE=["#ffffff","#fff3bf","#ffd8c2","#d3f9d8","#d0ebff","#e5dbff","#ffe3ef","#e9ecef"];
 const uid=()=>Math.random().toString(36).slice(2,9);
-const HINT_CANVAS="雙擊空白＝新增卡片 · 「▦ 看板」＝新增看板 · 卡片右上「開啟」＝進入子層 · 拖藍點＝連線 · 選取卡片按 Delete 刪除";
+const HINT_CANVAS="雙擊空白＝新增卡片 · 「▦ 看板」＝切換到本白板的看板 · 卡片右上「開啟」＝進入子白板 · 拖藍點＝連線 · 選取卡片按 Delete 刪除";
 const HINT_KANBAN="拖卡片左側 ⠿ 把手＝跨欄移動 · 點欄位/卡片文字可直接編輯 · 卡片「⋯」＝換色或刪除 · 麵包屑可返回白板";
 
 let doc,cur,trail=[],view={x:80,y:120,k:1};
@@ -171,11 +172,27 @@ function newBoard(name,type){
   return {name:name||"白板",type:"canvas",cards:{},links:[],view:{x:80,y:120,k:1}};
 }
 function freshDoc(){const rid=uid();const d={v:3,root:rid,boards:{}};d.boards[rid]=newBoard("我的白板","canvas");return d;}
+// 把舊版「看板卡片」自動轉成該白板的配對看板，並移除卡片
+function migrateKanbanCards(){
+  let changed=0;
+  for(const bid in doc.boards){const b=doc.boards[bid];if(b.type!=="canvas"||!b.cards)continue;
+    for(const cid of Object.keys(b.cards)){const c=b.cards[cid];
+      if(c.child&&doc.boards[c.child]&&doc.boards[c.child].type==="kanban"){
+        if(!b.kanban)b.kanban=c.child;
+        delete b.cards[cid];
+        if(b.links)b.links=b.links.filter(l=>l.a!==cid&&l.b!==cid);
+        changed++;
+      }
+    }
+  }
+  return changed;
+}
 
 function loadLocal(){
   try{doc=JSON.parse(localStorage.getItem("wb2_doc"));}catch(e){doc=null;}
   if(!doc||!doc.boards||!doc.root){doc=freshDoc();seed();saveLocal();}
   for(const id in doc.boards){if(!doc.boards[id].type)doc.boards[id].type="canvas";}
+  migrateKanbanCards();
   cur=doc.root;trail=[doc.root];
 }
 const board=()=>doc.boards[cur];
@@ -185,11 +202,9 @@ function saveLocal(){clearTimeout(saveT);saveT=setTimeout(()=>{const b=board();i
 function seed(){
   const b=doc.boards[doc.root];
   const mk=(x,y,t,bd,c,child)=>{const id=uid();b.cards[id]={id,x,y,w:230,title:t,body:bd,color:c,child:child||null};return id;};
-  const a=mk(200,250,"歡迎使用進階白板 👋","雙擊空白＝新增卡片。\n卡片右上「開啟」可進入它的子白板。","#fff3bf",null);
-  const e=mk(560,200,"嵌套白板","點我右上角「開啟」，進去後再加卡片。","#d0ebff",null);
-  const kbId=uid();doc.boards[kbId]=newBoard("我的看板","kanban");
-  const f=mk(560,380,"我的看板（Trello）","點右上「▦ 看板」進入，用拖的整理待辦。","#d3f9d8",kbId);
-  b.links.push({a,b:e},{a,b:f});
+  const a=mk(200,250,"歡迎使用進階白板 👋","雙擊空白＝新增卡片。\n卡片右上「開啟」可進入子白板。\n上方「▦ 看板」可切到本白板的看板。","#fff3bf",null);
+  const e=mk(560,260,"嵌套白板","點我右上角「開啟」，進去後再加卡片。","#d0ebff",null);
+  b.links.push({a,b:e});
 }
 
 /* ---------- view (canvas) ---------- */
@@ -314,11 +329,10 @@ function deleteCard(id){const c=board().cards[id];
   if(c&&c.child)delete doc.boards[c.child];
   delete board().cards[id];board().links=board().links.filter(l=>l.a!==id&&l.b!==id);
   world.querySelector(`.card[data-id="${id}"]`)?.remove();saveLocal();drawWires();}
-function newKanbanCard(){
-  const w=s2w(innerWidth/2,innerHeight/2);
-  const kbId=uid();doc.boards[kbId]=newBoard("我的看板","kanban");
-  newCard(w.x,w.y,{title:"我的看板",body:"點右上「▦ 看板」進入",color:"#d3f9d8",child:kbId});
-  render();
+function openPairedKanban(){
+  const b=board();
+  if(!b.kanban||!doc.boards[b.kanban]){const id=uid();doc.boards[id]=newBoard(b.name||"看板","kanban");b.kanban=id;saveLocal();}
+  trail.push(b.kanban);cur=b.kanban;enterBoard();
 }
 
 /* ---------- colors / context menu (shared) ---------- */
@@ -446,7 +460,8 @@ function fit(){const ids=Object.keys(board().cards);if(!ids.length){view={x:inne
   view.k=k;view.x=(innerWidth-(mxx+mnx)*k)/2;view.y=(innerHeight-(mxy+mny)*k)/2;applyView();}
 $("#fit").onclick=fit;
 $("#add").onclick=()=>{const w=s2w(innerWidth/2,innerHeight/2);newCard(w.x,w.y);};
-$("#addk").onclick=newKanbanCard;
+$("#addk").onclick=openPairedKanban;
+$("#backwb").onclick=()=>{if(trail.length>1){trail.pop();cur=trail[trail.length-1];enterBoard();}};
 $("#addcol").onclick=()=>{board().columns.push({id:uid(),title:"新欄位",cards:[]});saveLocal();renderKanban();};
 
 /* ---------- search ---------- */
@@ -489,9 +504,11 @@ async function pullCloud(){
       if(row.updated_at>localStamp && row.by!==clientId){
         if(kd)return "skip";
         doc=row.data;for(const id in doc.boards){if(!doc.boards[id].type)doc.boards[id].type="canvas";}
+        const mc=migrateKanbanCards();
         cur=doc.root;trail=[doc.root];
         localStamp=row.updated_at;localStorage.setItem("wb2_stamp",localStamp);
         localStorage.setItem("wb2_doc",JSON.stringify(doc));enterBoard();
+        if(mc)schedulePush();
       }else if(row.updated_at>localStamp){localStamp=row.updated_at;localStorage.setItem("wb2_stamp",localStamp);}
       setDot("ok");return "pulled";
     }else{await pushCloud();return "empty";}
