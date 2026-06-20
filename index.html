@@ -503,9 +503,14 @@ async function pullCloud(){
       const row=rows[0];
       if(row.updated_at>localStamp && row.by!==clientId){
         if(kd)return "skip";
+        if(document.activeElement&&document.activeElement.isContentEditable)return "skip";
+        const pc=cur,pt=trail.slice();
         doc=row.data;for(const id in doc.boards){if(!doc.boards[id].type)doc.boards[id].type="canvas";}
         const mc=migrateKanbanCards();
-        cur=doc.root;trail=[doc.root];
+        const keep=doc.boards[pc]?pc:doc.root;
+        trail=pt.filter(id=>doc.boards[id]);
+        if(!trail.length||trail[trail.length-1]!==keep){trail=[doc.root];if(keep!==doc.root)trail.push(keep);}
+        cur=keep;
         localStamp=row.updated_at;localStorage.setItem("wb2_stamp",localStamp);
         localStorage.setItem("wb2_doc",JSON.stringify(doc));enterBoard();
         if(mc)schedulePush();
