@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>白板筆記 · 進階版</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root{
     --bg:#f4f5f7; --grid:#e2e5ea; --ink:#2b2f36; --muted:#8a909a;
@@ -111,7 +112,7 @@
   <div class="grp">
     <button class="tb" id="exp">匯出</button>
     <button class="tb" id="imp">匯入</button>
-    <button class="tb" id="sync-btn"><span id="sdot"></span>同步</button>
+    <button class="tb" id="sync-btn"><span id="sdot"></span>帳號</button>
   </div>
 </div>
 
@@ -125,33 +126,29 @@
 
 <input type="file" id="file" accept="application/json" style="display:none">
 
-<div class="ov" id="sov">
+<div class="ov" id="authmodal">
   <div class="modal">
-    <h2>雲端同步設定</h2>
-    <p>已內建你的 Supabase 設定，開檔即自動同步。其他裝置打開同一個網址也會自動連到同一份白板。</p>
-    <label>Supabase 專案網址 (Project URL)</label>
-    <input id="f-url" placeholder="https://xxxx.supabase.co">
-    <label>anon public key</label>
-    <input id="f-key" placeholder="eyJhbGciOi...">
-    <label>同步代號（各裝置要一致）</label>
-    <input id="f-id" placeholder="例如 steven-wb-9f3k7q2m">
-    <div class="steps">
-      <b>備援：若要自行重建資料表，</b>在 Supabase 的 SQL Editor 貼上並 Run：
-      <pre class="sql" id="sqlbox">create table if not exists whiteboard (
-  id text primary key,
-  data jsonb,
-  updated_at bigint,
-  by text
-);
-alter table whiteboard enable row level security;
-create policy "public rw" on whiteboard
-  for all using (true) with check (true);</pre>
+    <div id="auth-in">
+      <h2>登入以使用雲端同步</h2>
+      <p>用 email 與密碼登入，你的白板只有你看得到。第一次使用請先「註冊」，到信箱點一下確認連結，再回來登入。</p>
+      <label>Email</label>
+      <input id="a-email" type="email" placeholder="you@example.com" autocomplete="username">
+      <label>密碼</label>
+      <input id="a-pw" type="password" placeholder="至少 6 個字" autocomplete="current-password">
+      <div id="auth-msg" style="font-size:12.5px;color:#c92a2a;margin-top:8px;min-height:16px;line-height:1.5;"></div>
+      <div class="row">
+        <button class="btn-g" id="a-cancel">先不登入</button>
+        <button class="btn-g" id="a-signup">註冊</button>
+        <button class="btn-p" id="a-login">登入</button>
+      </div>
     </div>
-    <div class="row">
-      <button class="btn-g" id="s-copy">複製 SQL</button>
-      <button class="btn-g" id="s-off">關閉同步</button>
-      <button class="btn-g" id="s-cancel">取消</button>
-      <button class="btn-p" id="s-save">儲存並同步</button>
+    <div id="auth-out" style="display:none">
+      <h2>帳號</h2>
+      <p>已登入：<b><span id="acct-email"></span></b><br>你的白板正在雲端同步，其他裝置用同一帳號登入即可看到。</p>
+      <div class="row">
+        <button class="btn-g" id="a-cancel2">關閉</button>
+        <button class="btn-g" id="a-logout">登出</button>
+      </div>
     </div>
   </div>
 </div>
@@ -482,76 +479,100 @@ $("#file").addEventListener("change",e=>{const f=e.target.files[0];if(!f)return;
   r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.boards||!d.root)throw 0;if(!confirm("匯入會取代目前所有白板，確定？"))return;doc=d;cur=doc.root;trail=[doc.root];localStorage.setItem("wb2_doc",JSON.stringify(doc));enterBoard();schedulePush();}catch(err){alert("檔案格式不正確。");}};
   r.readAsText(f);e.target.value="";});
 
-/* ================= CLOUD SYNC ================= */
-const DEFAULT_CFG={
-  url:"https://damhblwtrrcmdebbsire.supabase.co",
-  key:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRhbWhibHd0cnJjbWRlYmJzaXJlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE5MjYxNTUsImV4cCI6MjA5NzUwMjE1NX0.YZdMdOSrlZoLaSa0dR-u-F9ZPyJb6E1_iPfcElkByy4",
-  syncId:"steven-wb-9f3k7q2m"
-};
-let cfg=null,clientId=localStorage.getItem("wb2_cid")||(()=>{const c=uid()+uid();localStorage.setItem("wb2_cid",c);return c;})();
-let localStamp=+localStorage.getItem("wb2_stamp")||0;
-function loadCfg(){try{cfg=JSON.parse(localStorage.getItem("wb2_cfg"));}catch(e){cfg=null;}if(!cfg&&DEFAULT_CFG){cfg=DEFAULT_CFG;localStorage.setItem("wb2_cfg",JSON.stringify(cfg));}}
+/* ================= CLOUD SYNC（帳號登入） ================= */
+const SB_URL="https://damhblwtrrcmdebbsire.supabase.co";
+// anon public key：可公開，因資料受 RLS 保護，未登入無法讀寫
+const SB_ANON="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRhbWhibHd0cnJjbWRlYmJzaXJlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE5MjYxNTUsImV4cCI6MjA5NzUwMjE1NX0.YZdMdOSrlZoLaSa0dR-u-F9ZPyJb6E1_iPfcElkByy4";
+let sb=null,user=null;
+let clientId=localStorage.getItem("wb2_cid")||(()=>{const c=uid()+uid();localStorage.setItem("wb2_cid",c);return c;})();
+let localStamp=+localStorage.getItem("wb2_stamp")||0,pollTimer=null,pushT;
 function setDot(cls){const d=$("#sdot");d.className="";if(cls)d.classList.add(cls);}
-const headers=()=>({"apikey":cfg.key,"Authorization":"Bearer "+cfg.key,"Content-Type":"application/json"});
+
 async function pullCloud(){
-  if(!cfg)return;
+  if(!sb||!user)return;
   try{
-    const r=await fetch(`${cfg.url}/rest/v1/whiteboard?id=eq.${encodeURIComponent(cfg.syncId)}&select=*`,{headers:headers()});
-    if(!r.ok)throw new Error(r.status);
-    const rows=await r.json();
-    if(rows.length){
-      const row=rows[0];
-      if(row.updated_at>localStamp && row.by!==clientId){
+    const {data,error}=await sb.from("whiteboard").select("*").eq("id",user.id).maybeSingle();
+    if(error)throw error;
+    if(data){
+      if(data.updated_at>localStamp && data.by!==clientId){
         if(kd)return "skip";
         if(document.activeElement&&document.activeElement.isContentEditable)return "skip";
         const pc=cur,pt=trail.slice();
-        doc=row.data;for(const id in doc.boards){if(!doc.boards[id].type)doc.boards[id].type="canvas";}
+        doc=data.data;for(const id in doc.boards){if(!doc.boards[id].type)doc.boards[id].type="canvas";}
         const mc=migrateKanbanCards();
         const keep=doc.boards[pc]?pc:doc.root;
         trail=pt.filter(id=>doc.boards[id]);
         if(!trail.length||trail[trail.length-1]!==keep){trail=[doc.root];if(keep!==doc.root)trail.push(keep);}
         cur=keep;
-        localStamp=row.updated_at;localStorage.setItem("wb2_stamp",localStamp);
+        localStamp=data.updated_at;localStorage.setItem("wb2_stamp",localStamp);
         localStorage.setItem("wb2_doc",JSON.stringify(doc));enterBoard();
         if(mc)schedulePush();
-      }else if(row.updated_at>localStamp){localStamp=row.updated_at;localStorage.setItem("wb2_stamp",localStamp);}
+      }else if(data.updated_at>localStamp){localStamp=data.updated_at;localStorage.setItem("wb2_stamp",localStamp);}
       setDot("ok");return "pulled";
     }else{await pushCloud();return "empty";}
   }catch(e){setDot("err");return "err";}
 }
-let pushT;
-function schedulePush(){if(!cfg)return;setDot("busy");clearTimeout(pushT);pushT=setTimeout(pushCloud,800);}
+function schedulePush(){if(!sb||!user)return;setDot("busy");clearTimeout(pushT);pushT=setTimeout(pushCloud,800);}
 async function pushCloud(){
-  if(!cfg)return;
+  if(!sb||!user)return;
   try{
-    const stamp=Date.now();const body=[{id:cfg.syncId,data:doc,updated_at:stamp,by:clientId}];
-    const r=await fetch(`${cfg.url}/rest/v1/whiteboard`,{method:"POST",headers:Object.assign(headers(),{"Prefer":"resolution=merge-duplicates"}),body:JSON.stringify(body)});
-    if(!r.ok)throw new Error(r.status);
+    const stamp=Date.now();
+    const {error}=await sb.from("whiteboard").upsert({id:user.id,owner:user.id,data:doc,updated_at:stamp,by:clientId});
+    if(error)throw error;
     localStamp=stamp;localStorage.setItem("wb2_stamp",localStamp);setDot("ok");
   }catch(e){setDot("err");}
 }
-let pollTimer=null;
-function startSync(){if(pollTimer)clearInterval(pollTimer);if(!cfg)return;pullCloud();pollTimer=setInterval(pullCloud,4000);}
+function startSync(){if(pollTimer)clearInterval(pollTimer);if(!sb||!user)return;pullCloud();pollTimer=setInterval(pullCloud,4000);}
+function stopSync(){if(pollTimer)clearInterval(pollTimer);pollTimer=null;}
 
-const sov=$("#sov");
-$("#sync-btn").onclick=()=>{loadCfg();$("#f-url").value=cfg?.url||"";$("#f-key").value=cfg?.key||"";$("#f-id").value=cfg?.syncId||"";sov.classList.add("show");};
-$("#s-cancel").onclick=()=>sov.classList.remove("show");
-sov.addEventListener("click",e=>{if(e.target===sov)sov.classList.remove("show");});
-$("#s-copy").onclick=()=>{navigator.clipboard.writeText($("#sqlbox").textContent).then(()=>$("#s-copy").textContent="已複製!").catch(()=>{});setTimeout(()=>$("#s-copy").textContent="複製 SQL",1500);};
-$("#s-off").onclick=()=>{localStorage.removeItem("wb2_cfg");cfg=null;if(pollTimer)clearInterval(pollTimer);setDot("");sov.classList.remove("show");};
-$("#s-save").onclick=async()=>{
-  let url=$("#f-url").value.trim().replace(/\/+$/,"");const key=$("#f-key").value.trim(),id=$("#f-id").value.trim();
-  if(!url||!key||!id){alert("三個欄位都要填。");return;}
-  cfg={url,key,syncId:id};localStorage.setItem("wb2_cfg",JSON.stringify(cfg));setDot("busy");
-  const res=await pullCloud();if(res==="err"){alert("連線失敗，請確認網址、key、以及是否已執行建表 SQL。");return;}
-  startSync();sov.classList.remove("show");
-};
+/* ---- auth ---- */
+const authmodal=$("#authmodal");
+function onSession(session){
+  user=session&&session.user?session.user:null;
+  if(user){
+    $("#auth-in").style.display="none";$("#auth-out").style.display="";
+    $("#acct-email").textContent=user.email||"";
+    setDot("busy");startSync();authmodal.classList.remove("show");
+  }else{
+    $("#auth-in").style.display="";$("#auth-out").style.display="none";
+    stopSync();setDot("");
+  }
+}
+function initAuth(){
+  if(!window.supabase){$("#auth-msg").textContent="無法載入登入元件，請檢查網路後重新整理。";setDot("err");authmodal.classList.add("show");return;}
+  sb=supabase.createClient(SB_URL,SB_ANON);
+  sb.auth.onAuthStateChange((_e,session)=>onSession(session));
+  sb.auth.getSession().then(({data})=>{onSession(data.session);if(!data.session)authmodal.classList.add("show");});
+}
+$("#sync-btn").onclick=()=>authmodal.classList.add("show");
+$("#a-cancel").onclick=()=>authmodal.classList.remove("show");
+$("#a-cancel2").onclick=()=>authmodal.classList.remove("show");
+authmodal.addEventListener("click",e=>{if(e.target.id==="authmodal")authmodal.classList.remove("show");});
+async function doAuth(mode){
+  const email=$("#a-email").value.trim(),pw=$("#a-pw").value,msg=$("#auth-msg");
+  msg.style.color="#c92a2a";msg.textContent="";
+  if(!email||!pw){msg.textContent="請輸入信箱與密碼。";return;}
+  if(!sb){msg.textContent="登入元件尚未就緒，請稍候或重新整理。";return;}
+  try{
+    if(mode==="signup"){
+      const {data,error}=await sb.auth.signUp({email,password:pw});
+      if(error)throw error;
+      if(!data.session){msg.style.color="#2b8a3e";msg.textContent="註冊成功！請到信箱點擊確認連結，再回來按「登入」。";}
+    }else{
+      const {error}=await sb.auth.signInWithPassword({email,password:pw});
+      if(error)throw error;
+    }
+  }catch(e){msg.textContent="失敗："+(e.message||e);}
+}
+$("#a-login").onclick=()=>doAuth("login");
+$("#a-signup").onclick=()=>doAuth("signup");
+$("#a-logout").onclick=async()=>{if(sb)await sb.auth.signOut();authmodal.classList.remove("show");};
 
 /* ---------- boot ---------- */
 loadLocal();enterBoard();
 if(board().type==="canvas"&&Object.keys(board().cards).length)setTimeout(fit,60);
-loadCfg();if(cfg){setDot("busy");startSync();}
-window.addEventListener("online",()=>{if(cfg)startSync();});
+initAuth();
+window.addEventListener("online",()=>{if(user)startSync();});
 </script>
 </body>
 </html>
