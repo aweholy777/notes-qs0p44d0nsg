@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>白板筆記 · 進階版</title>
+<style>
+  :root{
+    --bg:#f4f5f7; --grid:#e2e5ea; --ink:#2b2f36; --muted:#8a909a;
+    --panel:#ffffff; --line:#b9c0cb; --accent:#4c8bf5; --shadow:0 2px 10px rgba(20,30,50,.12);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;height:100%;overflow:hidden;font-family:-apple-system,"PingFang TC","Microsoft JhengHei",Segoe UI,Roboto,sans-serif;color:var(--ink);background:var(--bg);}
+  #stage{position:fixed;inset:0;overflow:hidden;touch-action:none;cursor:grab;
+    background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);}
+  #stage.panning{cursor:grabbing;}
+  #world{position:absolute;left:0;top:0;transform-origin:0 0;}
+  svg#wires{position:absolute;left:0;top:0;overflow:visible;pointer-events:none;}
+  svg#wires path{fill:none;stroke:var(--line);stroke-width:2.5;}
+  .card{position:absolute;min-width:180px;max-width:520px;background:var(--panel);border-radius:12px;box-shadow:var(--shadow);border:1px solid #e6e9ef;display:flex;flex-direction:column;overflow:hidden;}
+  .card.sel{outline:2px solid var(--accent);outline-offset:1px;}
+  .card .bar{height:24px;display:flex;align-items:center;gap:6px;padding:0 6px 0 10px;cursor:move;background:var(--c,#fafbfc);border-bottom:1px solid #eef0f4;}
+  .card .bar .sp{flex:1;}
+  .card .open{font-size:12px;border:0;background:rgba(76,139,245,.12);color:var(--accent);border-radius:6px;padding:2px 7px;cursor:pointer;opacity:0;transition:.1s;}
+  .card:hover .open{opacity:1;}
+  .card .open.has{opacity:1;background:var(--accent);color:#fff;}
+  .card .title{font-weight:600;font-size:14px;padding:8px 12px 2px;outline:none;min-height:20px;}
+  .card .title:empty:before{content:"標題";color:var(--muted);}
+  .card .body{font-size:13px;line-height:1.55;padding:2px 12px 12px;outline:none;white-space:pre-wrap;color:#3c424c;min-height:22px;}
+  .card .body:empty:before{content:"輸入內容…";color:var(--muted);}
+  .card .port{position:absolute;width:14px;height:14px;border-radius:50%;background:#fff;border:2px solid var(--accent);right:-8px;top:calc(50% - 7px);cursor:crosshair;opacity:0;transition:.1s;}
+  .card:hover .port{opacity:1;}
+  .card .port.l{left:-8px;right:auto;}
+  .card.dim{opacity:.25;}
+  #bar{position:fixed;top:12px;left:12px;right:12px;display:flex;gap:8px;align-items:center;z-index:30;pointer-events:none;flex-wrap:wrap;}
+  #bar>*{pointer-events:auto;}
+  .grp{display:flex;gap:4px;background:var(--panel);border-radius:10px;padding:5px;box-shadow:var(--shadow);align-items:center;}
+  button.tb{border:0;background:transparent;padding:7px 11px;border-radius:7px;font-size:13px;cursor:pointer;color:var(--ink);white-space:nowrap;}
+  button.tb:hover{background:#eef1f6;}
+  button.tb.alt{color:var(--accent);font-weight:600;}
+  #crumbs{display:flex;align-items:center;gap:2px;background:var(--panel);border-radius:10px;padding:6px 10px;box-shadow:var(--shadow);font-size:13px;max-width:46vw;overflow:auto;white-space:nowrap;}
+  #crumbs a{color:var(--accent);cursor:pointer;text-decoration:none;}
+  #crumbs a:last-child{color:var(--ink);font-weight:600;cursor:default;}
+  #crumbs .sepc{color:var(--muted);margin:0 2px;}
+  #search{border:0;background:var(--panel);border-radius:10px;padding:9px 12px;box-shadow:var(--shadow);font-size:13px;width:130px;color:var(--ink);}
+  #sync-btn{display:flex;align-items:center;gap:6px;}
+  #sdot{width:9px;height:9px;border-radius:50%;background:#c4c9d2;}
+  #sdot.ok{background:#37b24d;} #sdot.busy{background:#f59f00;} #sdot.err{background:#e8590c;}
+  #hint{position:fixed;bottom:12px;left:12px;background:var(--panel);box-shadow:var(--shadow);border-radius:10px;padding:8px 12px;font-size:12px;color:var(--muted);z-index:30;max-width:74vw;}
+  #colors{position:fixed;display:none;gap:6px;background:var(--panel);box-shadow:var(--shadow);border-radius:10px;padding:8px;z-index:40;}
+  #colors span{width:22px;height:22px;border-radius:50%;cursor:pointer;border:2px solid #fff;box-shadow:0 0 0 1px #ddd;}
+  #zoom{position:fixed;bottom:12px;right:12px;display:flex;gap:4px;background:var(--panel);box-shadow:var(--shadow);border-radius:10px;padding:5px;z-index:30;}
+  .ov{position:fixed;inset:0;background:rgba(20,28,45,.4);display:none;align-items:center;justify-content:center;z-index:60;}
+  .ov.show{display:flex;}
+  .modal{background:#fff;border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.25);width:min(520px,92vw);max-height:88vh;overflow:auto;padding:22px 24px;}
+  .modal h2{margin:0 0 4px;font-size:18px;} .modal p{font-size:13px;color:#555;line-height:1.6;}
+  .modal label{display:block;font-size:12px;font-weight:600;margin:14px 0 4px;color:#444;}
+  .modal input{width:100%;padding:10px 12px;border:1px solid #d6dae1;border-radius:9px;font-size:13px;}
+  .modal .row{display:flex;gap:8px;justify-content:flex-end;margin-top:18px;flex-wrap:wrap;}
+  .modal button{border:0;border-radius:9px;padding:10px 16px;font-size:13px;cursor:pointer;}
+  .btn-p{background:var(--accent);color:#fff;} .btn-g{background:#eef1f6;color:#333;}
+  .steps{font-size:12.5px;color:#444;line-height:1.7;background:#f7f9fc;border-radius:10px;padding:12px 14px;margin-top:8px;}
+  .steps code{background:#eaeef5;padding:1px 5px;border-radius:4px;}
+  pre.sql{background:#1f2430;color:#e6edf3;font-size:11.5px;border-radius:9px;padding:12px;overflow:auto;line-height:1.55;}
+  input::placeholder{color:var(--muted);}
+</style>
+</head>
+<body>
+<div id="stage"><div id="world"><svg id="wires"></svg></div></div>
+
+<div id="bar">
+  <div id="crumbs"></div>
+  <div class="grp">
+    <button class="tb alt" id="add">＋ 卡片</button>
+    <button class="tb" id="fit">⤢ 適配</button>
+  </div>
+  <input id="search" placeholder="🔍 搜尋此白板…">
+  <div class="grp">
+    <button class="tb" id="exp">匯出</button>
+    <button class="tb" id="imp">匯入</button>
+    <button class="tb" id="sync-btn"><span id="sdot"></span>同步</button>
+  </div>
+</div>
+
+<div id="colors"></div>
+<div id="zoom">
+  <button class="tb" id="zout">－</button>
+  <button class="tb" id="zlvl">100%</button>
+  <button class="tb" id="zin">＋</button>
+</div>
+<div id="hint">雙擊空白＝新增卡片 · 卡片右上「開啟」＝進入子白板 · 拖藍點＝連線 · 滾輪／雙指＝縮放 · 選取卡片按 Delete 刪除</div>
+
+<input type="file" id="file" accept="application/json" style="display:none">
+
+<div class="ov" id="sov">
+  <div class="modal">
+    <h2>雲端同步設定</h2>
+    <p>已內建你的 Supabase 設定，開檔即自動同步。其他裝置打開同一個檔案也會自動連到同一份白板。下面欄位可檢視或修改。</p>
+    <label>Supabase 專案網址 (Project URL)</label>
+    <input id="f-url" placeholder="https://xxxx.supabase.co">
+    <label>anon public key</label>
+    <input id="f-key" placeholder="eyJhbGciOi...">
+    <label>同步代號（各裝置要一致）</label>
+    <input id="f-id" placeholder="例如 steven-wb-9f3k7q2m">
+    <div class="steps">
+      <b>備援：若要自行重建資料表，</b>在 Supabase 的 SQL Editor 貼上並 Run：
+      <pre class="sql" id="sqlbox">create table if not exists whiteboard (
+  id text primary key,
+  data jsonb,
+  updated_at bigint,
+  by text
+);
+alter table whiteboard enable row level security;
+create policy "public rw" on whiteboard
+  for all using (true) with check (true);</pre>
+    </div>
+    <div class="row">
+      <button class="btn-g" id="s-copy">複製 SQL</button>
+      <button class="btn-g" id="s-off">關閉同步</button>
+      <button class="btn-g" id="s-cancel">取消</button>
+      <button class="btn-p" id="s-save">儲存並同步</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $=s=>document.querySelector(s);
+const stage=$("#stage"),world=$("#world"),wires=$("#wires");
+const PALETTE=["#ffffff","#fff3bf","#ffd8c2","#d3f9d8","#d0ebff","#e5dbff","#ffe3ef","#e9ecef"];
+const uid=()=>Math.random().toString(36).slice(2,9);
+
+let doc,cur,trail=[],view={x:80,y:120,k:1};
+function newBoard(name){return {name:name||"白板",cards:{},links:[],view:{x:80,y:120,k:1}};}
+function freshDoc(){const rid=uid();const d={v:2,root:rid,boards:{}};d.boards[rid]=newBoard("我的白板");return d;}
+
+function loadLocal(){
+  try{doc=JSON.parse(localStorage.getItem("wb2_doc"));}catch(e){doc=null;}
+  if(!doc||!doc.boards||!doc.root){doc=freshDoc();seed();saveLocal();}
+  cur=doc.root;trail=[doc.root];
+  view=Object.assign({x:80,y:120,k:1},board().view||{});
+}
+const board=()=>doc.boards[cur];
+let saveT;
+function saveLocal(){clearTimeout(saveT);saveT=setTimeout(()=>{if(board())board().view=view;localStorage.setItem("wb2_doc",JSON.stringify(doc));schedulePush();},250);}
+
+function seed(){
+  const b=doc.boards[doc.root];
+  const mk=(x,y,t,bd,c,child)=>{const id=uid();b.cards[id]={id,x,y,w:230,title:t,body:bd,color:c,child:child||null};return id;};
+  const a=mk(200,250,"歡迎使用進階白板 👋","雙擊空白＝新增卡片。\n卡片右上「開啟」可進入它的子白板，層層整理。","#fff3bf",null);
+  const e=mk(560,200,"嵌套白板","點我右上角「開啟」，進去後再加卡片試試。","#d0ebff",null);
+  const f=mk(560,380,"雲端同步","已內建設定，右上小圓點變綠＝多裝置同步中。","#d3f9d8",null);
+  b.links.push({a,b:e},{a,b:f});
+}
+
+function applyView(){
+  world.style.transform=`translate(${view.x}px,${view.y}px) scale(${view.k})`;
+  const sz=40*view.k;
+  stage.style.backgroundSize=`${sz}px ${sz}px`;
+  stage.style.backgroundPosition=`${view.x}px ${view.y}px`;
+  $("#zlvl").textContent=Math.round(view.k*100)+"%";
+  saveLocal();
+}
+const s2w=(sx,sy)=>({x:(sx-view.x)/view.k,y:(sy-view.y)/view.k});
+
+function renderCrumbs(){
+  const c=$("#crumbs");c.innerHTML="";
+  trail.forEach((bid,i)=>{
+    if(i>0){const s=document.createElement("span");s.className="sepc";s.textContent="›";c.appendChild(s);}
+    const a=document.createElement("a");a.textContent=doc.boards[bid]?doc.boards[bid].name:"?";
+    if(i<trail.length-1)a.onclick=()=>gotoDepth(i);
+    c.appendChild(a);
+  });
+}
+function gotoDepth(i){trail=trail.slice(0,i+1);cur=trail[i];enterBoard();}
+function openChild(card){
+  if(!card.child){const id=uid();doc.boards[id]=newBoard(card.title||"子白板");card.child=id;saveLocal();}
+  trail.push(card.child);cur=card.child;enterBoard();
+}
+function enterBoard(){
+  view=Object.assign({x:80,y:120,k:1},board().view||{});
+  $("#search").value="";renderCrumbs();render();applyView();
+}
+
+function render(){
+  [...world.querySelectorAll(".card")].forEach(n=>n.remove());
+  const cs=board().cards;
+  for(const id in cs)addCardEl(cs[id]);
+  drawWires();
+}
+function addCardEl(c){
+  const el=document.createElement("div");
+  el.className="card";el.dataset.id=c.id;
+  el.style.left=c.x+"px";el.style.top=c.y+"px";if(c.w)el.style.width=c.w+"px";
+  el.style.setProperty("--c",c.color||"#fafbfc");
+  el.innerHTML=`<div class="bar"><span class="sp"></span><button class="open">↳ 開啟</button></div>
+    <div class="title" contenteditable="true" spellcheck="false"></div>
+    <div class="body" contenteditable="true" spellcheck="false"></div>
+    <div class="port l"></div><div class="port r"></div>`;
+  el.querySelector(".title").textContent=c.title||"";
+  el.querySelector(".body").textContent=c.body||"";
+  const ob=el.querySelector(".open");
+  if(c.child)ob.classList.add("has"),ob.textContent="↳ 開啟 ›";
+  world.appendChild(el);wireCard(el,c);
+}
+function cardPort(c,side){
+  const el=world.querySelector(`.card[data-id="${c.id}"]`);
+  const w=c.w||el?.offsetWidth||220,h=el?.offsetHeight||90;
+  return {x:c.x+(side==="l"?0:w),y:c.y+h/2};
+}
+function drawWires(){
+  wires.innerHTML="";
+  board().links.forEach((lk,i)=>{
+    const a=board().cards[lk.a],b=board().cards[lk.b];if(!a||!b)return;
+    const p1=cardPort(a,"r"),p2=cardPort(b,"l");
+    const dx=Math.max(40,Math.abs(p2.x-p1.x)/2);
+    const path=document.createElementNS("http://www.w3.org/2000/svg","path");
+    path.setAttribute("d",`M${p1.x},${p1.y} C${p1.x+dx},${p1.y} ${p2.x-dx},${p2.y} ${p2.x},${p2.y}`);
+    path.style.pointerEvents="stroke";
+    path.addEventListener("click",e=>{e.stopPropagation();if(confirm("刪除這條連線？")){board().links.splice(i,1);saveLocal();drawWires();}});
+    wires.appendChild(path);
+  });
+}
+
+let sel=null;
+function select(el){document.querySelectorAll(".card.sel").forEach(n=>n.classList.remove("sel"));sel=el;if(el)el.classList.add("sel");}
+function wireCard(el,c){
+  const bar=el.querySelector(".bar"),title=el.querySelector(".title"),body=el.querySelector(".body");
+  title.addEventListener("input",()=>{c.title=title.textContent;saveLocal();});
+  body.addEventListener("input",()=>{c.body=body.textContent;saveLocal();drawWires();});
+  body.addEventListener("blur",()=>{saveLocal();drawWires();});
+  el.querySelector(".open").addEventListener("click",e=>{e.stopPropagation();openChild(c);});
+  let dr=false,sx,sy,ox,oy;
+  bar.addEventListener("pointerdown",e=>{if(e.target.classList.contains("open"))return;e.stopPropagation();select(el);dr=true;bar.setPointerCapture(e.pointerId);sx=e.clientX;sy=e.clientY;ox=c.x;oy=c.y;});
+  bar.addEventListener("pointermove",e=>{if(!dr)return;c.x=ox+(e.clientX-sx)/view.k;c.y=oy+(e.clientY-sy)/view.k;el.style.left=c.x+"px";el.style.top=c.y+"px";drawWires();});
+  bar.addEventListener("pointerup",()=>{dr=false;saveLocal();});
+  el.addEventListener("pointerdown",e=>{if(e.target.classList.contains("port"))return;select(el);});
+  el.addEventListener("contextmenu",e=>{e.preventDefault();openColors(el,c,e.clientX,e.clientY);});
+  el.querySelectorAll(".port").forEach(p=>p.addEventListener("pointerdown",e=>{e.stopPropagation();e.preventDefault();startLink(c);}));
+}
+let tempLine=null;
+function startLink(from){
+  const move=ev=>{const w=s2w(ev.clientX,ev.clientY),p1=cardPort(from,"r");
+    if(!tempLine){tempLine=document.createElementNS("http://www.w3.org/2000/svg","path");tempLine.setAttribute("stroke","#4c8bf5");tempLine.setAttribute("stroke-dasharray","5 4");wires.appendChild(tempLine);}
+    const dx=Math.max(40,Math.abs(w.x-p1.x)/2);
+    tempLine.setAttribute("d",`M${p1.x},${p1.y} C${p1.x+dx},${p1.y} ${w.x-dx},${w.y} ${w.x},${w.y}`);};
+  const up=ev=>{document.removeEventListener("pointermove",move);document.removeEventListener("pointerup",up);
+    if(tempLine){tempLine.remove();tempLine=null;}
+    const tgt=document.elementFromPoint(ev.clientX,ev.clientY)?.closest(".card");
+    if(tgt&&tgt.dataset.id!==from.id){const b=tgt.dataset.id;
+      if(!board().links.some(l=>(l.a===from.id&&l.b===b)||(l.a===b&&l.b===from.id))){board().links.push({a:from.id,b});saveLocal();drawWires();}}};
+  document.addEventListener("pointermove",move);document.addEventListener("pointerup",up);
+}
+function newCard(wx,wy,opts={}){
+  const c={id:uid(),x:wx-90,y:wy-30,w:230,title:"",body:"",color:"#ffffff",child:null,...opts};
+  board().cards[c.id]=c;addCardEl(c);saveLocal();
+  setTimeout(()=>world.querySelector(`.card[data-id="${c.id}"] .title`)?.focus(),0);return c;
+}
+function deleteCard(id){const c=board().cards[id];
+  if(c&&c.child&&!confirm("此卡片含有子白板，一併刪除？"))return;
+  if(c&&c.child)delete doc.boards[c.child];
+  delete board().cards[id];board().links=board().links.filter(l=>l.a!==id&&l.b!==id);
+  world.querySelector(`.card[data-id="${id}"]`)?.remove();saveLocal();drawWires();}
+
+const cmenu=$("#colors");
+PALETTE.forEach(col=>{const s=document.createElement("span");s.style.background=col;s.dataset.col=col;cmenu.appendChild(s);});
+let colorTarget=null;
+function openColors(el,c,x,y){colorTarget={el,c};cmenu.style.display="flex";cmenu.style.left=Math.min(x,innerWidth-220)+"px";cmenu.style.top=y+"px";}
+cmenu.addEventListener("click",e=>{const col=e.target.dataset.col;if(!col||!colorTarget)return;colorTarget.c.color=col;colorTarget.el.style.setProperty("--c",col);saveLocal();cmenu.style.display="none";});
+
+let panning=false,psx,psy,pvx,pvy;
+stage.addEventListener("pointerdown",e=>{if(e.target!==stage&&e.target!==world&&e.target!==wires)return;panning=true;stage.classList.add("panning");psx=e.clientX;psy=e.clientY;pvx=view.x;pvy=view.y;select(null);cmenu.style.display="none";});
+window.addEventListener("pointermove",e=>{if(!panning)return;view.x=pvx+(e.clientX-psx);view.y=pvy+(e.clientY-psy);applyView();});
+window.addEventListener("pointerup",()=>{panning=false;stage.classList.remove("panning");});
+stage.addEventListener("dblclick",e=>{if(e.target!==stage&&e.target!==world&&e.target!==wires)return;const w=s2w(e.clientX,e.clientY);newCard(w.x,w.y);});
+stage.addEventListener("wheel",e=>{e.preventDefault();zoomAt(e.clientX,e.clientY,e.deltaY<0?1.1:0.9);},{passive:false});
+function zoomAt(cx,cy,f){const k2=Math.min(2.5,Math.max(0.2,view.k*f)),w=s2w(cx,cy);view.k=k2;view.x=cx-w.x*k2;view.y=cy-w.y*k2;applyView();}
+$("#zin").onclick=()=>zoomAt(innerWidth/2,innerHeight/2,1.15);
+$("#zout").onclick=()=>zoomAt(innerWidth/2,innerHeight/2,0.87);
+$("#zlvl").onclick=()=>{view.k=1;applyView();};
+let pinch=null;
+stage.addEventListener("touchstart",e=>{if(e.touches.length===2){const[a,b]=e.touches;pinch={d:Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY),cx:(a.clientX+b.clientX)/2,cy:(a.clientY+b.clientY)/2};}},{passive:false});
+stage.addEventListener("touchmove",e=>{if(pinch&&e.touches.length===2){e.preventDefault();const[a,b]=e.touches,d=Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);zoomAt(pinch.cx,pinch.cy,d/pinch.d);pinch.d=d;}},{passive:false});
+stage.addEventListener("touchend",()=>{pinch=null;});
+window.addEventListener("keydown",e=>{if((e.key==="Delete"||e.key==="Backspace")&&sel&&document.activeElement.tagName!=="INPUT"&&!document.activeElement.isContentEditable){e.preventDefault();deleteCard(sel.dataset.id);select(null);}});
+
+function fit(){const ids=Object.keys(board().cards);if(!ids.length){view={x:innerWidth/2-110,y:innerHeight/2-60,k:1};applyView();return;}
+  let mnx=1e9,mny=1e9,mxx=-1e9,mxy=-1e9;
+  ids.forEach(id=>{const c=board().cards[id],el=world.querySelector(`.card[data-id="${id}"]`),w=el?.offsetWidth||230,h=el?.offsetHeight||100;mnx=Math.min(mnx,c.x);mny=Math.min(mny,c.y);mxx=Math.max(mxx,c.x+w);mxy=Math.max(mxy,c.y+h);});
+  const pad=80,bw=mxx-mnx+pad*2,bh=mxy-mny+pad*2,k=Math.min(2,Math.min(innerWidth/bw,innerHeight/bh));
+  view.k=k;view.x=(innerWidth-(mxx+mnx)*k)/2;view.y=(innerHeight-(mxy+mny)*k)/2;applyView();}
+$("#fit").onclick=fit;
+$("#add").onclick=()=>{const w=s2w(innerWidth/2,innerHeight/2);newCard(w.x,w.y);};
+$("#search").addEventListener("input",e=>{const q=e.target.value.trim().toLowerCase();
+  document.querySelectorAll(".card").forEach(el=>{if(!q){el.classList.remove("dim");return;}const c=board().cards[el.dataset.id];el.classList.toggle("dim",!((c.title||"")+" "+(c.body||"")).toLowerCase().includes(q));});});
+
+$("#exp").onclick=()=>{const blob=new Blob([JSON.stringify(doc,null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="白板筆記_備份_"+new Date().toISOString().slice(0,10)+".json";a.click();};
+$("#imp").onclick=()=>$("#file").click();
+$("#file").addEventListener("change",e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();
+  r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.boards||!d.root)throw 0;if(!confirm("匯入會取代目前所有白板，確定？"))return;doc=d;cur=doc.root;trail=[doc.root];localStorage.setItem("wb2_doc",JSON.stringify(doc));enterBoard();schedulePush();}catch(err){alert("檔案格式不正確。");}};
+  r.readAsText(f);e.target.value="";});
+
+// ================= CLOUD SYNC =================
+// 已內建你的 Supabase 設定，開檔即自動同步。其他裝置打開同一個檔案也會用這組設定。
+const DEFAULT_CFG={
+  url:"https://damhblwtrrcmdebbsire.supabase.co",
+  key:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRhbWhibHd0cnJjbWRlYmJzaXJlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE5MjYxNTUsImV4cCI6MjA5NzUwMjE1NX0.YZdMdOSrlZoLaSa0dR-u-F9ZPyJb6E1_iPfcElkByy4",
+  syncId:"steven-wb-9f3k7q2m"
+};
+let cfg=null,clientId=localStorage.getItem("wb2_cid")||(()=>{const c=uid()+uid();localStorage.setItem("wb2_cid",c);return c;})();
+let localStamp=+localStorage.getItem("wb2_stamp")||0;
+function loadCfg(){try{cfg=JSON.parse(localStorage.getItem("wb2_cfg"));}catch(e){cfg=null;}if(!cfg&&DEFAULT_CFG){cfg=DEFAULT_CFG;localStorage.setItem("wb2_cfg",JSON.stringify(cfg));}}
+function setDot(cls){const d=$("#sdot");d.className="";if(cls)d.classList.add(cls);}
+const headers=()=>({"apikey":cfg.key,"Authorization":"Bearer "+cfg.key,"Content-Type":"application/json"});
+
+async function pullCloud(silent){
+  if(!cfg)return;
+  try{
+    const r=await fetch(`${cfg.url}/rest/v1/whiteboard?id=eq.${encodeURIComponent(cfg.syncId)}&select=*`,{headers:headers()});
+    if(!r.ok)throw new Error(r.status);
+    const rows=await r.json();
+    if(rows.length){
+      const row=rows[0];
+      if(row.updated_at>localStamp && row.by!==clientId){
+        doc=row.data;cur=doc.root;trail=[doc.root];
+        localStamp=row.updated_at;localStorage.setItem("wb2_stamp",localStamp);
+        localStorage.setItem("wb2_doc",JSON.stringify(doc));enterBoard();
+      }else if(row.updated_at>localStamp){localStamp=row.updated_at;localStorage.setItem("wb2_stamp",localStamp);}
+      setDot("ok");return "pulled";
+    }else{await pushCloud();return "empty";}
+  }catch(e){setDot("err");return "err";}
+}
+let pushT;
+function schedulePush(){if(!cfg)return;setDot("busy");clearTimeout(pushT);pushT=setTimeout(pushCloud,800);}
+async function pushCloud(){
+  if(!cfg)return;
+  try{
+    const stamp=Date.now();
+    const body=[{id:cfg.syncId,data:doc,updated_at:stamp,by:clientId}];
+    const r=await fetch(`${cfg.url}/rest/v1/whiteboard`,{method:"POST",headers:Object.assign(headers(),{"Prefer":"resolution=merge-duplicates"}),body:JSON.stringify(body)});
+    if(!r.ok)throw new Error(r.status);
+    localStamp=stamp;localStorage.setItem("wb2_stamp",localStamp);setDot("ok");
+  }catch(e){setDot("err");}
+}
+let pollTimer=null;
+function startSync(){if(pollTimer)clearInterval(pollTimer);if(!cfg)return;pullCloud(true);pollTimer=setInterval(()=>pullCloud(true),4000);}
+
+const sov=$("#sov");
+$("#sync-btn").onclick=()=>{loadCfg();$("#f-url").value=cfg?.url||"";$("#f-key").value=cfg?.key||"";$("#f-id").value=cfg?.syncId||"";sov.classList.add("show");};
+$("#s-cancel").onclick=()=>sov.classList.remove("show");
+sov.addEventListener("click",e=>{if(e.target===sov)sov.classList.remove("show");});
+$("#s-copy").onclick=()=>{navigator.clipboard.writeText($("#sqlbox").textContent).then(()=>$("#s-copy").textContent="已複製!").catch(()=>{});setTimeout(()=>$("#s-copy").textContent="複製 SQL",1500);};
+$("#s-off").onclick=()=>{localStorage.removeItem("wb2_cfg");cfg=null;if(pollTimer)clearInterval(pollTimer);setDot("");sov.classList.remove("show");};
+$("#s-save").onclick=async()=>{
+  let url=$("#f-url").value.trim().replace(/\/+$/,"");const key=$("#f-key").value.trim(),id=$("#f-id").value.trim();
+  if(!url||!key||!id){alert("三個欄位都要填。");return;}
+  cfg={url,key,syncId:id};localStorage.setItem("wb2_cfg",JSON.stringify(cfg));
+  setDot("busy");
+  const res=await pullCloud(true);
+  if(res==="err"){alert("連線失敗，請確認網址、key、以及是否已執行建表 SQL。");return;}
+  startSync();sov.classList.remove("show");
+};
+
+loadLocal();renderCrumbs();applyView();render();
+if(Object.keys(board().cards).length)setTimeout(fit,60);
+loadCfg();if(cfg){setDot("busy");startSync();}
+window.addEventListener("online",()=>{if(cfg)startSync();});
+</script>
+</body>
+</html>
