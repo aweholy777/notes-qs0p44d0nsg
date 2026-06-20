@@ -83,6 +83,41 @@
   body.dark .steps{background:#1b1f25;color:#c3c8d0;}
   body.dark pre.sql{background:#10131a;}
 
+  /* ===== todos ===== */
+  .card .todos{padding:0 12px 8px;}
+  .todo-row{display:flex;align-items:flex-start;gap:6px;font-size:13px;line-height:1.5;padding:1px 0;}
+  .todo-row input[type=checkbox]{margin-top:3px;cursor:pointer;flex:0 0 auto;}
+  .todo-row .tt{flex:1;outline:none;min-width:0;word-break:break-word;}
+  .todo-row .tt:empty:before{content:"待辦項目…";color:var(--muted);}
+  .todo-row.done .tt{text-decoration:line-through;color:var(--muted);}
+  .todo-row .tdel{opacity:0;border:0;background:transparent;color:#c92a2a;cursor:pointer;font-size:12px;}
+  .todo-row:hover .tdel{opacity:.7;}
+  .card .bar .tdbtn{font-size:12px;border:0;background:transparent;cursor:pointer;opacity:0;padding:0 3px;line-height:1;}
+  .card:hover .bar .tdbtn{opacity:.65;}
+  .card .bar .tdbtn:hover{opacity:1;}
+  body.dark .todo-row .tt{color:var(--ink);}
+
+  /* ===== kanban card image ===== */
+  .kcard .kcimg{display:block;width:100%;max-height:150px;object-fit:cover;border-radius:6px;margin-bottom:5px;cursor:zoom-out;}
+  .kcard .kimg{border:0;background:transparent;color:#9aa3b0;cursor:pointer;font-size:12px;border-radius:4px;padding:0 2px;opacity:0;}
+  .kcard:hover .kimg{opacity:1;}
+
+  /* ===== print / pdf ===== */
+  #printarea{display:none;}
+  @media print{
+    body *{visibility:hidden;}
+    #printarea,#printarea *{visibility:visible;}
+    #printarea{display:block;position:absolute;left:0;top:0;width:100%;padding:24px;color:#000;background:#fff;}
+    .p-board{font-size:22px;font-weight:700;margin:0 0 16px;}
+    .p-card{border:1px solid #ccc;border-radius:8px;padding:10px 12px;margin:0 0 12px;break-inside:avoid;}
+    .p-card h3{margin:0 0 4px;font-size:15px;}
+    .p-card .pb{font-size:13px;white-space:pre-wrap;color:#222;}
+    .p-card img{max-width:100%;max-height:260px;border-radius:6px;margin:6px 0;display:block;}
+    .p-todo{font-size:13px;}
+    .p-col{margin:0 0 14px;break-inside:avoid;}
+    .p-col h2{font-size:16px;border-bottom:2px solid #333;padding-bottom:3px;}
+  }
+
   #bar{position:fixed;top:12px;left:12px;right:12px;display:flex;gap:8px;align-items:center;z-index:30;pointer-events:none;flex-wrap:wrap;}
   #bar>*{pointer-events:auto;}
   .grp{display:flex;gap:4px;background:var(--panel);border-radius:10px;padding:5px;box-shadow:var(--shadow);align-items:center;}
@@ -135,6 +170,7 @@
   <input id="search" placeholder="🔍 搜尋…">
   <div class="grp">
     <button class="tb" id="theme" title="深色／淺色模式">🌙</button>
+    <button class="tb" id="pdf" title="匯出目前白板為 PDF">PDF</button>
     <button class="tb" id="exp">匯出</button>
     <button class="tb" id="imp">匯入</button>
     <button class="tb" id="sync-btn"><span id="sdot"></span>帳號</button>
@@ -151,6 +187,7 @@
 
 <input type="file" id="file" accept="application/json" style="display:none">
 <input type="file" id="imgfile" accept="image/*" style="display:none">
+<div id="printarea"></div>
 
 <div class="ov" id="authmodal">
   <div class="modal">
@@ -283,19 +320,34 @@ function addCardEl(c){
   el.className="card";el.dataset.id=c.id;
   el.style.left=c.x+"px";el.style.top=c.y+"px";if(c.w)el.style.width=c.w+"px";
   el.style.setProperty("--c",c.color||"#fafbfc");
-  el.innerHTML=`<div class="bar"><button class="imgbtn" title="貼圖片">🖼</button><span class="sp"></span><button class="open">↳ 開啟</button></div>
+  el.innerHTML=`<div class="bar"><button class="imgbtn" title="貼圖片">🖼</button><button class="tdbtn" title="加待辦">☑</button><span class="sp"></span><button class="open">↳ 開啟</button></div>
     <img class="cimg" alt="" style="display:none">
     <div class="title" contenteditable="true" spellcheck="false"></div>
     <div class="body" contenteditable="true" spellcheck="false"></div>
+    <div class="todos"></div>
     <div class="port l"></div><div class="port r"></div>`;
   el.querySelector(".title").textContent=c.title||"";
   el.querySelector(".body").textContent=c.body||"";
   const cim=el.querySelector(".cimg");if(c.img){cim.src=c.img;cim.style.display="block";}
+  renderTodos(el,c);
   const ob=el.querySelector(".open");
   const ct=c.child&&doc.boards[c.child]?doc.boards[c.child].type:null;
   if(ct==="kanban"){ob.classList.add("kan");ob.textContent="▦ 看板 ›";}
   else if(ct==="canvas"){ob.classList.add("has");ob.textContent="↳ 開啟 ›";}
   world.appendChild(el);wireCard(el,c);
+}
+function renderTodos(el,c){
+  const box=el.querySelector(".todos");if(!box)return;box.innerHTML="";
+  (c.todos||[]).forEach((t,i)=>{
+    const row=document.createElement("div");row.className="todo-row"+(t.done?" done":"");
+    const cb=document.createElement("input");cb.type="checkbox";cb.checked=!!t.done;
+    cb.addEventListener("change",()=>{t.done=cb.checked;row.classList.toggle("done",cb.checked);saveLocal();});
+    const tx=document.createElement("div");tx.className="tt";tx.contentEditable="true";tx.spellcheck=false;tx.textContent=t.text||"";
+    tx.addEventListener("input",()=>{t.text=tx.textContent;saveLocal();});
+    const del=document.createElement("button");del.className="tdel";del.textContent="✕";
+    del.addEventListener("click",e=>{e.stopPropagation();c.todos.splice(i,1);renderTodos(el,c);saveLocal();drawWires();});
+    row.append(cb,tx,del);box.appendChild(row);
+  });
 }
 function cardPort(c,side){
   const el=world.querySelector(`.card[data-id="${c.id}"]`);
@@ -323,7 +375,8 @@ function wireCard(el,c){
   body.addEventListener("input",()=>{c.body=body.textContent;saveLocal();drawWires();});
   body.addEventListener("blur",()=>{saveLocal();drawWires();});
   el.querySelector(".open").addEventListener("click",e=>{e.stopPropagation();openChild(c);});
-  el.querySelector(".imgbtn").addEventListener("click",e=>{e.stopPropagation();imgTarget={c,el};$("#imgfile").click();});
+  el.querySelector(".imgbtn").addEventListener("click",e=>{e.stopPropagation();pickImage(data=>{c.img=data;const im=el.querySelector(".cimg");im.src=data;im.style.display="block";saveLocal();drawWires();});});
+  el.querySelector(".tdbtn").addEventListener("click",e=>{e.stopPropagation();if(!c.todos)c.todos=[];c.todos.push({text:"",done:false});renderTodos(el,c);drawWires();saveLocal();setTimeout(()=>{const rows=el.querySelectorAll(".todo-row .tt");if(rows.length)rows[rows.length-1].focus();},0);});
   el.querySelector(".cimg").addEventListener("click",e=>{e.stopPropagation();if(confirm("移除這張圖片？")){c.img=null;const im=el.querySelector(".cimg");im.removeAttribute("src");im.style.display="none";saveLocal();drawWires();}});
   let dr=false,sx,sy,ox,oy;
   bar.addEventListener("pointerdown",e=>{if(e.target.classList.contains("open"))return;e.stopPropagation();select(el);dr=true;bar.setPointerCapture(e.pointerId);sx=e.clientX;sy=e.clientY;ox=c.x;oy=c.y;});
@@ -414,9 +467,12 @@ function renderKanban(){
 function buildKCard(kc,ci){
   const el=document.createElement("div");el.className="kcard";el.dataset.id=kc.id;el.dataset.ci=ci;
   el.style.setProperty("--kc",kc.color||"#fff");
-  el.innerHTML=`<span class="kh" title="拖曳移動">⠿</span><div class="kbody"><div class="ktitle" contenteditable="true" spellcheck="false"></div></div><button class="kmore" title="更多">⋯</button>`;
+  el.innerHTML=`<span class="kh" title="拖曳移動">⠿</span><div class="kbody"><img class="kcimg" alt="" style="display:none"><div class="ktitle" contenteditable="true" spellcheck="false"></div></div><button class="kimg" title="貼圖片">🖼</button><button class="kmore" title="更多">⋯</button>`;
   const t=el.querySelector(".ktitle");t.textContent=kc.title||"";
   t.addEventListener("input",()=>{kc.title=t.textContent;saveLocal();});
+  const ki=el.querySelector(".kcimg");if(kc.img){ki.src=kc.img;ki.style.display="block";}
+  ki.addEventListener("click",e=>{e.stopPropagation();if(confirm("移除這張圖片？")){kc.img=null;saveLocal();renderKanban();}});
+  el.querySelector(".kimg").onclick=e=>{e.stopPropagation();pickImage(data=>{kc.img=data;saveLocal();renderKanban();});};
   el.querySelector(".kmore").onclick=e=>{e.stopPropagation();const r=e.target.getBoundingClientRect();
     openColors(r.left-150,r.bottom+4,col=>{kc.color=col;el.style.setProperty("--kc",col);saveLocal();},()=>{deleteKCard(ci,kc.id);});};
   el.querySelector(".kh").addEventListener("pointerdown",ev=>startKDrag(ev,el,ci,kc));
@@ -510,11 +566,41 @@ $("#file").addEventListener("change",e=>{const f=e.target.files[0];if(!f)return;
   r.readAsText(f);e.target.value="";});
 
 /* ---------- card image + theme ---------- */
-let imgTarget=null;
+let imgApply=null;
+function pickImage(fn){imgApply=fn;$("#imgfile").click();}
 function compressImage(file,maxDim,q){return new Promise(res=>{const img=new Image();img.onload=()=>{let w=img.width,h=img.height;const s=Math.min(1,maxDim/Math.max(w,h));w=Math.round(w*s);h=Math.round(h*s);const cv=document.createElement("canvas");cv.width=w;cv.height=h;cv.getContext("2d").drawImage(img,0,0,w,h);const out=cv.toDataURL("image/jpeg",q);URL.revokeObjectURL(img.src);res(out);};img.onerror=()=>res(null);img.src=URL.createObjectURL(file);});}
-$("#imgfile").addEventListener("change",async e=>{const f=e.target.files[0];e.target.value="";if(!f||!imgTarget)return;const data=await compressImage(f,900,0.72);if(!data){alert("圖片讀取失敗。");return;}imgTarget.c.img=data;const im=imgTarget.el.querySelector(".cimg");im.src=data;im.style.display="block";saveLocal();drawWires();imgTarget=null;});
+$("#imgfile").addEventListener("change",async e=>{const f=e.target.files[0];e.target.value="";if(!f||!imgApply)return;const data=await compressImage(f,900,0.72);if(!data){alert("圖片讀取失敗。");return;}imgApply(data);imgApply=null;});
 function applyTheme(){const dark=localStorage.getItem("wb2_theme")==="dark";document.body.classList.toggle("dark",dark);$("#theme").textContent=dark?"☀️":"🌙";}
 $("#theme").onclick=()=>{const dark=!document.body.classList.contains("dark");localStorage.setItem("wb2_theme",dark?"dark":"light");applyTheme();};
+
+/* ---------- export PDF (列印目前白板) ---------- */
+$("#pdf").onclick=()=>{
+  const pa=$("#printarea");pa.innerHTML="";const b=board();
+  const head=document.createElement("div");head.className="p-board";head.textContent=(b.type==="kanban"?"▦ ":"")+(b.name||"白板");pa.appendChild(head);
+  if(b.type==="kanban"){
+    b.columns.forEach(col=>{
+      const cs=document.createElement("div");cs.className="p-col";
+      const ch=document.createElement("h2");ch.textContent=col.title||"";cs.appendChild(ch);
+      (col.cards||[]).forEach(kc=>{
+        const cc=document.createElement("div");cc.className="p-card";
+        if(kc.img){const im=document.createElement("img");im.src=kc.img;cc.appendChild(im);}
+        const t=document.createElement("div");t.className="pb";t.textContent=kc.title||"";cc.appendChild(t);
+        cs.appendChild(cc);
+      });
+      pa.appendChild(cs);
+    });
+  }else{
+    Object.values(b.cards).forEach(c=>{
+      const cc=document.createElement("div");cc.className="p-card";
+      const t=document.createElement("h3");t.textContent=c.title||"（無標題）";cc.appendChild(t);
+      if(c.img){const im=document.createElement("img");im.src=c.img;cc.appendChild(im);}
+      if(c.body){const bd=document.createElement("div");bd.className="pb";bd.textContent=c.body;cc.appendChild(bd);}
+      (c.todos||[]).forEach(td=>{const r=document.createElement("div");r.className="p-todo";r.textContent=(td.done?"☑ ":"☐ ")+(td.text||"");cc.appendChild(r);});
+      pa.appendChild(cc);
+    });
+  }
+  setTimeout(()=>window.print(),60);
+};
 
 /* ================= CLOUD SYNC（帳號登入） ================= */
 const SB_URL="https://damhblwtrrcmdebbsire.supabase.co";
