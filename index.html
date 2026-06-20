@@ -18,6 +18,7 @@
   #world{position:absolute;left:0;top:0;transform-origin:0 0;}
   svg#wires{position:absolute;left:0;top:0;overflow:visible;pointer-events:none;}
   svg#wires path{fill:none;stroke:var(--line);stroke-width:2.5;}
+  svg#wires text.wlabel{fill:var(--ink);font-size:12px;font-family:inherit;paint-order:stroke;stroke:var(--panel);stroke-width:4px;stroke-linejoin:round;cursor:pointer;}
   .card{position:absolute;min-width:180px;max-width:520px;background:var(--panel);border-radius:12px;box-shadow:var(--shadow);border:1px solid #e6e9ef;display:flex;flex-direction:column;overflow:hidden;}
   .card.sel{outline:2px solid var(--accent);outline-offset:1px;}
   .card .bar{height:24px;display:flex;align-items:center;gap:6px;padding:0 6px 0 10px;cursor:move;background:var(--c,#fafbfc);border-bottom:1px solid #eef0f4;}
@@ -150,6 +151,14 @@
   .steps{font-size:12.5px;color:#444;line-height:1.7;background:#f7f9fc;border-radius:10px;padding:12px 14px;margin-top:8px;}
   pre.sql{background:#1f2430;color:#e6edf3;font-size:11.5px;border-radius:9px;padding:12px;overflow:auto;line-height:1.55;}
   input::placeholder{color:var(--muted);}
+  #g-input{width:100%;padding:10px 12px;border:1px solid #d6dae1;border-radius:9px;font-size:14px;}
+  body.dark #g-input{background:#1b1f25;color:var(--ink);border-color:#3a4049;}
+  #g-results{margin-top:12px;max-height:50vh;overflow:auto;display:flex;flex-direction:column;gap:4px;}
+  .g-item{text-align:left;border:0;background:transparent;cursor:pointer;padding:8px 10px;border-radius:8px;font-size:13px;color:var(--ink);}
+  .g-item:hover{background:#eef1f6;}
+  body.dark .g-item:hover{background:#3a4049;}
+  .g-item .g-meta{font-size:11px;color:var(--muted);margin-top:2px;}
+  .g-empty{color:var(--muted);font-size:13px;padding:8px 4px;}
 </style>
 </head>
 <body>
@@ -162,6 +171,7 @@
     <button class="tb alt" id="add">＋ 卡片</button>
     <button class="tb kanbtn" id="addk">▦ 看板</button>
     <button class="tb" id="fit">⤢ 適配</button>
+    <button class="tb" id="tidy" title="自動整齊排列卡片">▥ 整理</button>
   </div>
   <div class="grp" id="grp-kanban" style="display:none">
     <button class="tb" id="backwb">← 白板</button>
@@ -169,6 +179,7 @@
   </div>
   <input id="search" placeholder="🔍 搜尋…">
   <div class="grp">
+    <button class="tb" id="gsearch" title="全域搜尋（跨所有白板）">🔎</button>
     <button class="tb" id="theme" title="深色／淺色模式">🌙</button>
     <button class="tb" id="pdf" title="匯出目前白板為 PDF">PDF</button>
     <button class="tb" id="exp">匯出</button>
@@ -188,6 +199,16 @@
 <input type="file" id="file" accept="application/json" style="display:none">
 <input type="file" id="imgfile" accept="image/*" style="display:none">
 <div id="printarea"></div>
+
+<div class="ov" id="gsmodal">
+  <div class="modal">
+    <h2>全域搜尋</h2>
+    <p style="margin:0 0 6px">搜尋所有白板、子白板與看板的卡片內容（也可用 #標籤 搜尋）。</p>
+    <input id="g-input" placeholder="輸入關鍵字或 #標籤…" autocomplete="off">
+    <div id="g-results"></div>
+    <div class="row"><button class="btn-g" id="g-close">關閉</button></div>
+  </div>
+</div>
 
 <div class="ov" id="authmodal">
   <div class="modal">
@@ -354,16 +375,19 @@ function cardPort(c,side){
   const w=c.w||el?.offsetWidth||220,h=el?.offsetHeight||90;
   return {x:c.x+(side==="l"?0:w),y:c.y+h/2};
 }
+function editLink(lk,i){const t=prompt("這條連線的說明文字（輸入「刪除」可移除連線）：",lk.label||"");if(t===null)return;if(t.trim()==="刪除"){board().links.splice(i,1);}else{lk.label=t;}saveLocal();drawWires();}
 function drawWires(){
   wires.innerHTML="";
+  const NS="http://www.w3.org/2000/svg";
   (board().links||[]).forEach((lk,i)=>{
     const a=board().cards[lk.a],b=board().cards[lk.b];if(!a||!b)return;
     const p1=cardPort(a,"r"),p2=cardPort(b,"l");const dx=Math.max(40,Math.abs(p2.x-p1.x)/2);
-    const path=document.createElementNS("http://www.w3.org/2000/svg","path");
+    const path=document.createElementNS(NS,"path");
     path.setAttribute("d",`M${p1.x},${p1.y} C${p1.x+dx},${p1.y} ${p2.x-dx},${p2.y} ${p2.x},${p2.y}`);
     path.style.pointerEvents="stroke";
-    path.addEventListener("click",e=>{e.stopPropagation();if(confirm("刪除這條連線？")){board().links.splice(i,1);saveLocal();drawWires();}});
+    path.addEventListener("click",e=>{e.stopPropagation();editLink(lk,i);});
     wires.appendChild(path);
+    if(lk.label){const mx=(p1.x+p2.x)/2,my=(p1.y+p2.y)/2;const tx=document.createElementNS(NS,"text");tx.setAttribute("x",mx);tx.setAttribute("y",my);tx.setAttribute("text-anchor","middle");tx.setAttribute("dy","0.35em");tx.setAttribute("class","wlabel");tx.style.pointerEvents="all";tx.textContent=lk.label;tx.addEventListener("click",e=>{e.stopPropagation();editLink(lk,i);});wires.appendChild(tx);}
   });
 }
 
@@ -546,6 +570,44 @@ $("#add").onclick=()=>{const w=s2w(innerWidth/2,innerHeight/2);newCard(w.x,w.y);
 $("#addk").onclick=openPairedKanban;
 $("#backwb").onclick=()=>{if(trail.length>1){trail.pop();cur=trail[trail.length-1];enterBoard();}};
 $("#addcol").onclick=()=>{board().columns.push({id:uid(),title:"新欄位",cards:[]});saveLocal();renderKanban();};
+
+/* ---------- tidy（一鍵整理排版） ---------- */
+function tidy(){
+  const ids=Object.keys(board().cards);if(!ids.length)return;
+  ids.sort((x,y)=>{const a=board().cards[x],b=board().cards[y];return (a.y-b.y)||(a.x-b.x);});
+  const cols=Math.max(1,Math.round(Math.sqrt(ids.length*1.3)));
+  const gx=270,gy=210,sx=80,sy=80;
+  ids.forEach((id,i)=>{const c=board().cards[id];c.x=sx+(i%cols)*gx;c.y=sy+Math.floor(i/cols)*gy;});
+  saveLocal();render();setTimeout(fit,30);
+}
+$("#tidy").onclick=tidy;
+
+/* ---------- global search（全域搜尋） ---------- */
+function boardParentMap(){const p={};for(const id in doc.boards){const b=doc.boards[id];if(b.type!=="canvas")continue;if(b.cards)for(const cid in b.cards){const c=b.cards[cid];if(c.child)p[c.child]=id;}if(b.kanban)p[b.kanban]=id;}return p;}
+function boardPath(target){const p=boardParentMap();const path=[target];let cur2=target,g=0;while(p[cur2]&&g++<200){cur2=p[cur2];path.unshift(cur2);}return path;}
+function gotoBoard(target){const path=boardPath(target);trail=path.length?path:[doc.root];cur=trail[trail.length-1];enterBoard();}
+function globalSearch(q){
+  q=q.trim().toLowerCase();const out=[];if(!q)return out;
+  for(const id in doc.boards){const b=doc.boards[id];
+    if(b.type==="canvas"){for(const cid in b.cards){const c=b.cards[cid];const txt=((c.title||"")+" "+(c.body||"")+" "+((c.todos||[]).map(t=>t.text).join(" "))).toLowerCase();if(txt.includes(q))out.push({board:id,bn:b.name,kind:"白板",title:c.title||"（無標題）"});}}
+    else if(b.type==="kanban"){for(const col of (b.columns||[]))for(const kc of (col.cards||[])){if((kc.title||"").toLowerCase().includes(q))out.push({board:id,bn:b.name,kind:"看板",title:kc.title||"（無標題）",col:col.title});}}
+  }
+  return out.slice(0,60);
+}
+const gsmodal=$("#gsmodal");
+function runGlobalSearch(){
+  const q=$("#g-input").value;const box=$("#g-results");box.innerHTML="";
+  if(!q.trim()){box.innerHTML='<div class="g-empty">輸入關鍵字開始搜尋…</div>';return;}
+  const res=globalSearch(q);
+  if(!res.length){box.innerHTML='<div class="g-empty">找不到符合的卡片。</div>';return;}
+  res.forEach(r=>{const it=document.createElement("button");it.className="g-item";
+    const t=document.createElement("div");t.textContent=r.title;const m=document.createElement("div");m.className="g-meta";m.textContent=r.kind+"："+(r.bn||"")+(r.col?(" › "+r.col):"");it.append(t,m);
+    it.onclick=()=>{gsmodal.classList.remove("show");gotoBoard(r.board);};box.appendChild(it);});
+}
+$("#gsearch").onclick=()=>{gsmodal.classList.add("show");$("#g-input").value="";runGlobalSearch();setTimeout(()=>$("#g-input").focus(),0);};
+$("#g-close").onclick=()=>gsmodal.classList.remove("show");
+gsmodal.addEventListener("click",e=>{if(e.target.id==="gsmodal")gsmodal.classList.remove("show");});
+$("#g-input").addEventListener("input",runGlobalSearch);
 
 /* ---------- search ---------- */
 function applySearchFilter(){
