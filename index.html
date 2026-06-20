@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>白板筆記 · 進階版</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
   :root{
     --bg:#f4f5f7; --grid:#e2e5ea; --ink:#2b2f36; --muted:#8a909a;
@@ -30,7 +31,24 @@
   .card .title{font-weight:600;font-size:14px;padding:8px 12px 2px;outline:none;min-height:20px;}
   .card .title:empty:before{content:"標題";color:var(--muted);}
   .card .body{font-size:13px;line-height:1.55;padding:2px 12px 12px;outline:none;white-space:pre-wrap;color:#3c424c;min-height:22px;}
-  .card .body:empty:before{content:"輸入內容…";color:var(--muted);}
+  .card .body:empty:before{content:"輸入內容…（支援 Markdown）";color:var(--muted);}
+  .card .bodyview{font-size:13px;line-height:1.55;padding:2px 12px 12px;color:#3c424c;min-height:22px;word-break:break-word;cursor:text;}
+  .card .bodyview:empty:before{content:"輸入內容…（支援 Markdown）";color:var(--muted);}
+  .card .bodyview p{margin:.3em 0;}
+  .card .bodyview h1,.card .bodyview h2,.card .bodyview h3{margin:.4em 0 .2em;line-height:1.25;}
+  .card .bodyview h1{font-size:18px;} .card .bodyview h2{font-size:16px;} .card .bodyview h3{font-size:14px;}
+  .card .bodyview code{background:#eef0f4;padding:1px 4px;border-radius:4px;font-size:12px;}
+  .card .bodyview pre{background:#f2f4f7;padding:8px;border-radius:6px;overflow:auto;}
+  .card .bodyview pre code{background:none;padding:0;}
+  .card .bodyview ul,.card .bodyview ol{margin:.3em 0;padding-left:1.4em;}
+  .card .bodyview a{color:var(--accent);}
+  .card .bodyview blockquote{margin:.3em 0;padding-left:8px;border-left:3px solid var(--line);color:var(--muted);}
+  .card .bodyview img{max-width:100%;border-radius:6px;}
+  .wikilink{color:#7048e8;cursor:pointer;text-decoration:none;border-bottom:1px dashed #7048e8;}
+  .wikilink:hover{background:rgba(112,72,232,.12);}
+  body.dark .card .bodyview{color:#c3c8d0;}
+  body.dark .card .bodyview code,body.dark .card .bodyview pre{background:#1b1f25;}
+  body.dark .wikilink{color:#b197fc;border-bottom-color:#b197fc;}
   .card .port{position:absolute;width:14px;height:14px;border-radius:50%;background:#fff;border:2px solid var(--accent);right:-8px;top:calc(50% - 7px);cursor:crosshair;opacity:0;transition:.1s;}
   .card:hover .port{opacity:1;}
   .card .port.l{left:-8px;right:auto;}
@@ -344,11 +362,13 @@ function addCardEl(c){
   el.innerHTML=`<div class="bar"><button class="imgbtn" title="貼圖片">🖼</button><button class="tdbtn" title="加待辦">☑</button><span class="sp"></span><button class="open">↳ 開啟</button></div>
     <img class="cimg" alt="" style="display:none">
     <div class="title" contenteditable="true" spellcheck="false"></div>
-    <div class="body" contenteditable="true" spellcheck="false"></div>
+    <div class="body" contenteditable="true" spellcheck="false" style="display:none"></div>
+    <div class="bodyview"></div>
     <div class="todos"></div>
     <div class="port l"></div><div class="port r"></div>`;
   el.querySelector(".title").textContent=c.title||"";
   el.querySelector(".body").textContent=c.body||"";
+  el.querySelector(".bodyview").innerHTML=mdRender(c.body);
   const cim=el.querySelector(".cimg");if(c.img){cim.src=c.img;cim.style.display="block";}
   renderTodos(el,c);
   const ob=el.querySelector(".open");
@@ -356,6 +376,19 @@ function addCardEl(c){
   if(ct==="kanban"){ob.classList.add("kan");ob.textContent="▦ 看板 ›";}
   else if(ct==="canvas"){ob.classList.add("has");ob.textContent="↳ 開啟 ›";}
   world.appendChild(el);wireCard(el,c);
+}
+function escapeHtml(s){return (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+function mdRender(text){
+  text=text||"";let html;
+  if(window.marked){try{html=marked.parse(text,{breaks:true});}catch(e){html=escapeHtml(text).replace(/\n/g,"<br>");}}
+  else{html=escapeHtml(text).replace(/\n/g,"<br>");}
+  html=html.replace(/\[\[([^\]]+)\]\]/g,(m,t)=>{const x=t.trim();return '<a class="wikilink" data-title="'+x.replace(/"/g,"&quot;")+'">'+x+'</a>';});
+  return html;
+}
+function findCardByTitle(title){
+  const tl=(title||"").trim().toLowerCase();if(!tl)return null;
+  for(const id in doc.boards){const b=doc.boards[id];if(b.type!=="canvas"||!b.cards)continue;for(const cid in b.cards){if((b.cards[cid].title||"").trim().toLowerCase()===tl)return {board:id,cardId:cid};}}
+  return null;
 }
 function renderTodos(el,c){
   const box=el.querySelector(".todos");if(!box)return;box.innerHTML="";
@@ -396,8 +429,10 @@ function select(el){document.querySelectorAll(".card.sel").forEach(n=>n.classLis
 function wireCard(el,c){
   const bar=el.querySelector(".bar"),title=el.querySelector(".title"),body=el.querySelector(".body");
   title.addEventListener("input",()=>{c.title=title.textContent;saveLocal();});
-  body.addEventListener("input",()=>{c.body=body.textContent;saveLocal();drawWires();});
-  body.addEventListener("blur",()=>{saveLocal();drawWires();});
+  const bv=el.querySelector(".bodyview");
+  body.addEventListener("input",()=>{c.body=body.textContent;saveLocal();});
+  body.addEventListener("blur",()=>{c.body=body.textContent;bv.innerHTML=mdRender(c.body);body.style.display="none";bv.style.display="";saveLocal();drawWires();});
+  bv.addEventListener("click",e=>{const wl=e.target.closest(".wikilink");if(wl){e.stopPropagation();const t=findCardByTitle(wl.dataset.title);if(t)gotoBoard(t.board);else alert("找不到標題為「"+wl.dataset.title+"」的卡片。建立一張同名卡片即可連結。");return;}e.stopPropagation();bv.style.display="none";body.style.display="";body.focus();drawWires();});
   el.querySelector(".open").addEventListener("click",e=>{e.stopPropagation();openChild(c);});
   el.querySelector(".imgbtn").addEventListener("click",e=>{e.stopPropagation();pickImage(data=>{c.img=data;const im=el.querySelector(".cimg");im.src=data;im.style.display="block";saveLocal();drawWires();});});
   el.querySelector(".tdbtn").addEventListener("click",e=>{e.stopPropagation();if(!c.todos)c.todos=[];c.todos.push({text:"",done:false});renderTodos(el,c);drawWires();saveLocal();setTimeout(()=>{const rows=el.querySelectorAll(".todo-row .tt");if(rows.length)rows[rows.length-1].focus();},0);});
