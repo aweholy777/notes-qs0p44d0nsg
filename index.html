@@ -177,6 +177,15 @@
   body.dark .g-item:hover{background:#3a4049;}
   .g-item .g-meta{font-size:11px;color:var(--muted);margin-top:2px;}
   .g-empty{color:var(--muted);font-size:13px;padding:8px 4px;}
+  /* ===== presentation ===== */
+  #world.presenting{transition:transform .6s cubic-bezier(.4,0,.2,1);}
+  #present{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);display:none;gap:6px;align-items:center;background:var(--panel);box-shadow:var(--shadow);border-radius:30px;padding:6px 12px;z-index:80;}
+  #present.show{display:flex;}
+  #present button{border:0;background:transparent;font-size:17px;cursor:pointer;color:var(--ink);padding:4px 10px;border-radius:18px;}
+  #present button:hover{background:#eef1f6;}
+  body.dark #present button:hover{background:#3a4049;}
+  #present .pnum{font-size:13px;color:var(--muted);min-width:54px;text-align:center;}
+  body.presenting-mode #bar,body.presenting-mode #zoom,body.presenting-mode #hint{display:none!important;}
 </style>
 </head>
 <body>
@@ -190,6 +199,7 @@
     <button class="tb kanbtn" id="addk">▦ 看板</button>
     <button class="tb" id="fit">⤢ 適配</button>
     <button class="tb" id="tidy" title="自動整齊排列卡片">▥ 整理</button>
+    <button class="tb" id="present-btn" title="簡報模式（依序聚焦卡片）">▶ 簡報</button>
   </div>
   <div class="grp" id="grp-kanban" style="display:none">
     <button class="tb" id="backwb">← 白板</button>
@@ -197,6 +207,8 @@
   </div>
   <input id="search" placeholder="🔍 搜尋…">
   <div class="grp">
+    <button class="tb" id="undo" title="復原 (Ctrl+Z)">↶</button>
+    <button class="tb" id="redo" title="重做 (Ctrl+Y)">↷</button>
     <button class="tb" id="gsearch" title="全域搜尋（跨所有白板）">🔎</button>
     <button class="tb" id="theme" title="深色／淺色模式">🌙</button>
     <button class="tb" id="pdf" title="匯出目前白板為 PDF">PDF</button>
@@ -217,6 +229,13 @@
 <input type="file" id="file" accept="application/json" style="display:none">
 <input type="file" id="imgfile" accept="image/*" style="display:none">
 <div id="printarea"></div>
+
+<div id="present">
+  <button id="p-prev" title="上一步">◀</button>
+  <span class="pnum" id="p-num">1 / 1</span>
+  <button id="p-next" title="下一步">▶</button>
+  <button id="p-exit" title="結束簡報">✕</button>
+</div>
 
 <div class="ov" id="gsmodal">
   <div class="modal">
@@ -295,8 +314,14 @@ function loadLocal(){
   cur=doc.root;trail=[doc.root];
 }
 const board=()=>doc.boards[cur];
-let saveT;
-function saveLocal(){clearTimeout(saveT);saveT=setTimeout(()=>{const b=board();if(b&&b.type==="canvas")b.view=view;localStorage.setItem("wb2_doc",JSON.stringify(doc));schedulePush();},250);}
+let saveT,suppressSave=false;
+function saveLocal(){if(suppressSave)return;clearTimeout(saveT);saveT=setTimeout(()=>{const b=board();if(b&&b.type==="canvas")b.view=view;const s=JSON.stringify(doc);localStorage.setItem("wb2_doc",s);pushHistory(s);schedulePush();},250);}
+let lastSnap=null,undoStack=[],redoStack=[];
+function pushHistory(s){if(s===lastSnap)return;if(lastSnap!==null){undoStack.push(lastSnap);if(undoStack.length>40)undoStack.shift();redoStack.length=0;}lastSnap=s;updateHistButtons();}
+function updateHistButtons(){const u=$("#undo"),r=$("#redo");if(u)u.style.opacity=undoStack.length?"1":".35";if(r)r.style.opacity=redoStack.length?"1":".35";}
+function applySnapshot(s){doc=JSON.parse(s);if(!doc.boards[cur]){cur=doc.root;trail=[doc.root];}else{trail=trail.filter(id=>doc.boards[id]);if(!trail.length||trail[trail.length-1]!==cur){trail=[doc.root];if(cur!==doc.root)trail.push(cur);}}localStorage.setItem("wb2_doc",s);enterBoard();schedulePush();}
+function undo(){if(!undoStack.length)return;redoStack.push(JSON.stringify(doc));const prev=undoStack.pop();lastSnap=prev;applySnapshot(prev);updateHistButtons();}
+function redo(){if(!redoStack.length)return;undoStack.push(JSON.stringify(doc));const nx=redoStack.pop();lastSnap=nx;applySnapshot(nx);updateHistButtons();}
 
 function seed(){
   const b=doc.boards[doc.root];
@@ -644,6 +669,21 @@ $("#g-close").onclick=()=>gsmodal.classList.remove("show");
 gsmodal.addEventListener("click",e=>{if(e.target.id==="gsmodal")gsmodal.classList.remove("show");});
 $("#g-input").addEventListener("input",runGlobalSearch);
 
+/* ---------- undo / redo ---------- */
+$("#undo").onclick=undo;$("#redo").onclick=redo;
+window.addEventListener("keydown",e=>{const ed=document.activeElement&&(document.activeElement.isContentEditable||document.activeElement.tagName==="INPUT");if(ed)return;if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="z"&&!e.shiftKey){e.preventDefault();undo();}else if((e.ctrlKey||e.metaKey)&&(e.key.toLowerCase()==="y"||(e.shiftKey&&e.key.toLowerCase()==="z"))){e.preventDefault();redo();}});
+
+/* ---------- presentation mode ---------- */
+let presSteps=[],presIdx=0,presenting=false;
+function focusCard(id){const el=world.querySelector(`.card[data-id="${id}"]`),c=board().cards[id];if(!c)return;const w=(el&&el.offsetWidth)||230,h=(el&&el.offsetHeight)||120,margin=140;const k=Math.min(1.5,(innerWidth-margin)/w,(innerHeight-margin)/h);view.k=k;view.x=innerWidth/2-(c.x+w/2)*k;view.y=innerHeight/2-(c.y+h/2)*k;applyView();}
+function focusStep(){$("#p-num").textContent=(presIdx+1)+" / "+presSteps.length;focusCard(presSteps[presIdx]);}
+function startPresent(){if(board().type!=="canvas"){alert("簡報模式用於白板（無限畫布）。");return;}const ids=Object.keys(board().cards);if(!ids.length){alert("這個白板還沒有卡片。");return;}ids.sort((x,y)=>{const a=board().cards[x],b=board().cards[y];return (a.y-b.y)||(a.x-b.x);});presSteps=ids;presIdx=0;presenting=true;suppressSave=true;document.body.classList.add("presenting-mode");world.classList.add("presenting");$("#present").classList.add("show");focusStep();}
+function presNext(){if(presIdx<presSteps.length-1){presIdx++;focusStep();}}
+function presPrev(){if(presIdx>0){presIdx--;focusStep();}}
+function presExit(){presenting=false;suppressSave=false;document.body.classList.remove("presenting-mode");world.classList.remove("presenting");$("#present").classList.remove("show");fit();}
+$("#present-btn").onclick=startPresent;$("#p-next").onclick=presNext;$("#p-prev").onclick=presPrev;$("#p-exit").onclick=presExit;
+window.addEventListener("keydown",e=>{if(!presenting)return;if(e.key==="ArrowRight"||e.key===" "){e.preventDefault();presNext();}else if(e.key==="ArrowLeft"){e.preventDefault();presPrev();}else if(e.key==="Escape"){presExit();}});
+
 /* ---------- search ---------- */
 function applySearchFilter(){
   const q=$("#search").value.trim().toLowerCase();
@@ -726,6 +766,7 @@ async function pullCloud(){
         cur=keep;
         localStamp=data.updated_at;localStorage.setItem("wb2_stamp",localStamp);
         localStorage.setItem("wb2_doc",JSON.stringify(doc));enterBoard();
+        lastSnap=JSON.stringify(doc);undoStack.length=0;redoStack.length=0;updateHistButtons();
         if(mc)schedulePush();
       }else if(data.updated_at>localStamp){localStamp=data.updated_at;localStorage.setItem("wb2_stamp",localStamp);}
       setDot("ok");return "pulled";
@@ -791,6 +832,7 @@ $("#a-logout").onclick=async()=>{if(sb)await sb.auth.signOut();authmodal.classLi
 /* ---------- boot ---------- */
 applyTheme();
 loadLocal();enterBoard();
+lastSnap=JSON.stringify(doc);updateHistButtons();
 if(board().type==="canvas"&&Object.keys(board().cards).length)setTimeout(fit,60);
 initAuth();
 window.addEventListener("online",()=>{if(user)startSync();});
