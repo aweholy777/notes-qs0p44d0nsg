@@ -59,6 +59,30 @@
   .add-col{flex:0 0 280px;background:rgba(255,255,255,.5);border:1px dashed #b9c0cb;border-radius:12px;color:#5e6c84;cursor:pointer;padding:12px;font-size:14px;font-weight:600;}
   .add-col:hover{background:#fff;}
 
+  /* ===== card image ===== */
+  .card .cimg{display:block;width:100%;max-height:240px;object-fit:cover;border-bottom:1px solid #eef0f4;cursor:zoom-out;}
+  .card .bar .imgbtn{font-size:12px;border:0;background:transparent;cursor:pointer;opacity:0;padding:0 3px;line-height:1;}
+  .card:hover .bar .imgbtn{opacity:.65;}
+  .card .bar .imgbtn:hover{opacity:1;}
+
+  /* ===== dark mode ===== */
+  body.dark{--bg:#15181d;--grid:#21252c;--ink:#e6e9ef;--muted:#7a818c;--panel:#23272e;--line:#3a4049;--accent:#5c9cff;--shadow:0 4px 14px rgba(0,0,0,.5);}
+  body.dark .card .body{color:#c3c8d0;}
+  body.dark .col{background:#2a2f37;}
+  body.dark .col-h button{color:#aab2bd;}
+  body.dark .col-h button:hover{background:#3a4049;}
+  body.dark .add-card{color:#aab2bd;}
+  body.dark .add-card:hover{background:#3a4049;color:#fff;}
+  body.dark .add-col{background:rgba(255,255,255,.04);border-color:#3a4049;color:#aab2bd;}
+  body.dark .kcard{color:#1a1d23;}
+  body.dark .modal{background:#23272e;}
+  body.dark .modal h2,body.dark .modal p{color:var(--ink);}
+  body.dark .modal label{color:#c3c8d0;}
+  body.dark .modal input,body.dark #search{background:#1b1f25;color:var(--ink);border-color:#3a4049;}
+  body.dark .btn-g{background:#3a4049;color:#e6e9ef;}
+  body.dark .steps{background:#1b1f25;color:#c3c8d0;}
+  body.dark pre.sql{background:#10131a;}
+
   #bar{position:fixed;top:12px;left:12px;right:12px;display:flex;gap:8px;align-items:center;z-index:30;pointer-events:none;flex-wrap:wrap;}
   #bar>*{pointer-events:auto;}
   .grp{display:flex;gap:4px;background:var(--panel);border-radius:10px;padding:5px;box-shadow:var(--shadow);align-items:center;}
@@ -110,6 +134,7 @@
   </div>
   <input id="search" placeholder="🔍 搜尋…">
   <div class="grp">
+    <button class="tb" id="theme" title="深色／淺色模式">🌙</button>
     <button class="tb" id="exp">匯出</button>
     <button class="tb" id="imp">匯入</button>
     <button class="tb" id="sync-btn"><span id="sdot"></span>帳號</button>
@@ -125,6 +150,7 @@
 <div id="hint"></div>
 
 <input type="file" id="file" accept="application/json" style="display:none">
+<input type="file" id="imgfile" accept="image/*" style="display:none">
 
 <div class="ov" id="authmodal">
   <div class="modal">
@@ -257,12 +283,14 @@ function addCardEl(c){
   el.className="card";el.dataset.id=c.id;
   el.style.left=c.x+"px";el.style.top=c.y+"px";if(c.w)el.style.width=c.w+"px";
   el.style.setProperty("--c",c.color||"#fafbfc");
-  el.innerHTML=`<div class="bar"><span class="sp"></span><button class="open">↳ 開啟</button></div>
+  el.innerHTML=`<div class="bar"><button class="imgbtn" title="貼圖片">🖼</button><span class="sp"></span><button class="open">↳ 開啟</button></div>
+    <img class="cimg" alt="" style="display:none">
     <div class="title" contenteditable="true" spellcheck="false"></div>
     <div class="body" contenteditable="true" spellcheck="false"></div>
     <div class="port l"></div><div class="port r"></div>`;
   el.querySelector(".title").textContent=c.title||"";
   el.querySelector(".body").textContent=c.body||"";
+  const cim=el.querySelector(".cimg");if(c.img){cim.src=c.img;cim.style.display="block";}
   const ob=el.querySelector(".open");
   const ct=c.child&&doc.boards[c.child]?doc.boards[c.child].type:null;
   if(ct==="kanban"){ob.classList.add("kan");ob.textContent="▦ 看板 ›";}
@@ -295,6 +323,8 @@ function wireCard(el,c){
   body.addEventListener("input",()=>{c.body=body.textContent;saveLocal();drawWires();});
   body.addEventListener("blur",()=>{saveLocal();drawWires();});
   el.querySelector(".open").addEventListener("click",e=>{e.stopPropagation();openChild(c);});
+  el.querySelector(".imgbtn").addEventListener("click",e=>{e.stopPropagation();imgTarget={c,el};$("#imgfile").click();});
+  el.querySelector(".cimg").addEventListener("click",e=>{e.stopPropagation();if(confirm("移除這張圖片？")){c.img=null;const im=el.querySelector(".cimg");im.removeAttribute("src");im.style.display="none";saveLocal();drawWires();}});
   let dr=false,sx,sy,ox,oy;
   bar.addEventListener("pointerdown",e=>{if(e.target.classList.contains("open"))return;e.stopPropagation();select(el);dr=true;bar.setPointerCapture(e.pointerId);sx=e.clientX;sy=e.clientY;ox=c.x;oy=c.y;});
   bar.addEventListener("pointermove",e=>{if(!dr)return;c.x=ox+(e.clientX-sx)/view.k;c.y=oy+(e.clientY-sy)/view.k;el.style.left=c.x+"px";el.style.top=c.y+"px";drawWires();});
@@ -479,6 +509,13 @@ $("#file").addEventListener("change",e=>{const f=e.target.files[0];if(!f)return;
   r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.boards||!d.root)throw 0;if(!confirm("匯入會取代目前所有白板，確定？"))return;doc=d;cur=doc.root;trail=[doc.root];localStorage.setItem("wb2_doc",JSON.stringify(doc));enterBoard();schedulePush();}catch(err){alert("檔案格式不正確。");}};
   r.readAsText(f);e.target.value="";});
 
+/* ---------- card image + theme ---------- */
+let imgTarget=null;
+function compressImage(file,maxDim,q){return new Promise(res=>{const img=new Image();img.onload=()=>{let w=img.width,h=img.height;const s=Math.min(1,maxDim/Math.max(w,h));w=Math.round(w*s);h=Math.round(h*s);const cv=document.createElement("canvas");cv.width=w;cv.height=h;cv.getContext("2d").drawImage(img,0,0,w,h);const out=cv.toDataURL("image/jpeg",q);URL.revokeObjectURL(img.src);res(out);};img.onerror=()=>res(null);img.src=URL.createObjectURL(file);});}
+$("#imgfile").addEventListener("change",async e=>{const f=e.target.files[0];e.target.value="";if(!f||!imgTarget)return;const data=await compressImage(f,900,0.72);if(!data){alert("圖片讀取失敗。");return;}imgTarget.c.img=data;const im=imgTarget.el.querySelector(".cimg");im.src=data;im.style.display="block";saveLocal();drawWires();imgTarget=null;});
+function applyTheme(){const dark=localStorage.getItem("wb2_theme")==="dark";document.body.classList.toggle("dark",dark);$("#theme").textContent=dark?"☀️":"🌙";}
+$("#theme").onclick=()=>{const dark=!document.body.classList.contains("dark");localStorage.setItem("wb2_theme",dark?"dark":"light");applyTheme();};
+
 /* ================= CLOUD SYNC（帳號登入） ================= */
 const SB_URL="https://damhblwtrrcmdebbsire.supabase.co";
 // anon public key：可公開，因資料受 RLS 保護，未登入無法讀寫
@@ -569,6 +606,7 @@ $("#a-signup").onclick=()=>doAuth("signup");
 $("#a-logout").onclick=async()=>{if(sb)await sb.auth.signOut();authmodal.classList.remove("show");};
 
 /* ---------- boot ---------- */
+applyTheme();
 loadLocal();enterBoard();
 if(board().type==="canvas"&&Object.keys(board().cards).length)setTimeout(fit,60);
 initAuth();
