@@ -186,6 +186,14 @@
   body.dark #present button:hover{background:#3a4049;}
   #present .pnum{font-size:13px;color:var(--muted);min-width:54px;text-align:center;}
   body.presenting-mode #bar,body.presenting-mode #zoom,body.presenting-mode #hint{display:none!important;}
+  /* ===== help ===== */
+  #helpmodal .modal{width:min(580px,94vw);}
+  #helpbody{font-size:13px;line-height:1.65;color:var(--ink);}
+  #helpbody h3{font-size:14px;margin:14px 0 4px;border-bottom:1px solid var(--line);padding-bottom:3px;}
+  #helpbody ul{margin:.2em 0 .6em;padding-left:1.3em;}
+  #helpbody li{margin:2px 0;}
+  #helpbody kbd{background:#eef0f4;border-radius:4px;padding:0 5px;font-size:12px;}
+  body.dark #helpbody kbd{background:#1b1f25;}
 </style>
 </head>
 <body>
@@ -214,6 +222,7 @@
     <button class="tb" id="pdf" title="匯出目前白板為 PDF">PDF</button>
     <button class="tb" id="exp">匯出</button>
     <button class="tb" id="imp">匯入</button>
+    <button class="tb" id="help-btn" title="使用說明">?</button>
     <button class="tb" id="sync-btn"><span id="sdot"></span>帳號</button>
   </div>
 </div>
@@ -235,6 +244,48 @@
   <span class="pnum" id="p-num">1 / 1</span>
   <button id="p-next" title="下一步">▶</button>
   <button id="p-exit" title="結束簡報">✕</button>
+</div>
+
+<div class="ov" id="helpmodal">
+  <div class="modal">
+    <h2>使用說明</h2>
+    <div id="helpbody">
+      <h3>帳號與同步</h3>
+      <ul>
+        <li>右上「帳號」→ 輸入 email 與密碼 → 第一次按「註冊」，之後按「登入」。</li>
+        <li>登入後自動雲端同步，<b>只有你看得到</b>；其他裝置用同一帳號登入即可看到同一份白板。</li>
+        <li>右上小圓點：綠＝已同步、黃＝同步中、紅＝異常、灰＝未登入。</li>
+      </ul>
+      <h3>白板（無限畫布）</h3>
+      <ul>
+        <li><b>新增卡片</b>：空白處雙擊，或上方「＋ 卡片」。</li>
+        <li><b>編輯</b>：點內容區編輯（顯示原始文字），點外面變回排版。支援 Markdown（<kbd>#標題</kbd> <kbd>**粗體**</kbd> <kbd>-清單</kbd> <kbd>`程式碼`</kbd>）。</li>
+        <li><b>雙向連結</b>：內容打 <kbd>[[卡片標題]]</kbd>，點它跳到同名卡片。</li>
+        <li><b>移動</b>：拖卡片上方灰列。<b>連線</b>：拖卡片右側藍點到另一張卡片。</li>
+        <li><b>連線附註</b>：點連線可加文字；輸入「刪除」可移除連線。</li>
+        <li><b>🖼 貼圖</b>、<b>☑ 待辦</b>：卡片左上兩個按鈕。右鍵換色，選取後按 <kbd>Delete</kbd> 刪除。</li>
+        <li><b>子白板</b>：卡片右上「↳ 開啟」進入；<b>▥ 整理</b>：自動排整齊。</li>
+      </ul>
+      <h3>看板（Trello 式）</h3>
+      <ul>
+        <li>上方「▦ 看板」進入本白板的看板，「← 白板」返回。</li>
+        <li>欄位：＋欄位、改名、◀▶移動、✕刪欄。卡片：底部「＋新增卡片」，按住 ⠿ 拖動換欄。</li>
+        <li>卡片可 🖼 貼圖、⋯ 換色或刪除。</li>
+      </ul>
+      <h3>搜尋與簡報</h3>
+      <ul>
+        <li><b>🔎 全域搜尋</b>：跨所有白板與看板（含 #標籤），點結果直接跳過去。</li>
+        <li><b>▶ 簡報模式</b>：依序聚焦每張卡片；方向鍵／空白鍵翻頁、<kbd>Esc</kbd> 離開。</li>
+      </ul>
+      <h3>其他</h3>
+      <ul>
+        <li><b>↶ ↷ 復原／重做</b>（或 <kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd>）。</li>
+        <li><b>🌙 深色模式</b>、<b>PDF</b> 匯出、<b>匯出／匯入</b> .json 備份。</li>
+        <li>手機加到主畫面：iPhone 用 Safari→分享→加入主畫面；Android 用 Chrome→⋮→加到主畫面。</li>
+      </ul>
+    </div>
+    <div class="row"><button class="btn-p" id="help-close">知道了</button></div>
+  </div>
 </div>
 
 <div class="ov" id="gsmodal">
@@ -683,6 +734,12 @@ function presPrev(){if(presIdx>0){presIdx--;focusStep();}}
 function presExit(){presenting=false;suppressSave=false;document.body.classList.remove("presenting-mode");world.classList.remove("presenting");$("#present").classList.remove("show");fit();}
 $("#present-btn").onclick=startPresent;$("#p-next").onclick=presNext;$("#p-prev").onclick=presPrev;$("#p-exit").onclick=presExit;
 window.addEventListener("keydown",e=>{if(!presenting)return;if(e.key==="ArrowRight"||e.key===" "){e.preventDefault();presNext();}else if(e.key==="ArrowLeft"){e.preventDefault();presPrev();}else if(e.key==="Escape"){presExit();}});
+
+/* ---------- help ---------- */
+const helpmodal=$("#helpmodal");
+$("#help-btn").onclick=()=>helpmodal.classList.add("show");
+$("#help-close").onclick=()=>helpmodal.classList.remove("show");
+helpmodal.addEventListener("click",e=>{if(e.target.id==="helpmodal")helpmodal.classList.remove("show");});
 
 /* ---------- search ---------- */
 function applySearchFilter(){
