@@ -45,7 +45,7 @@
   .col-h button:hover{background:#dfe1e6;}
   .col-cards{padding:0 8px 6px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;min-height:8px;}
   .kcard{background:var(--kc,#fff);border-radius:8px;padding:7px 8px 8px;box-shadow:0 1px 1px rgba(9,30,66,.25);display:flex;gap:6px;align-items:flex-start;}
-  .kcard .kh{cursor:grab;color:#aab2bd;font-size:13px;line-height:1.2;user-select:none;touch-action:none;padding-top:2px;}
+  .kcard .kh{cursor:grab;color:#9aa3b0;font-size:16px;line-height:1.1;user-select:none;touch-action:none;padding:0 4px 2px 0;align-self:stretch;}
   .kcard .kbody{flex:1;min-width:0;}
   .kcard .ktitle{font-size:13.5px;line-height:1.45;outline:none;word-break:break-word;}
   .kcard .ktitle:empty:before{content:"輸入…";color:var(--muted);}
@@ -399,7 +399,8 @@ function startKDrag(e,el,ci,kc){
 function moveKDrag(e){
   if(!kd)return;
   kd.el.style.left=(e.clientX-kd.ox)+"px";kd.el.style.top=(e.clientY-kd.oy)+"px";
-  const colEl=document.elementFromPoint(e.clientX,e.clientY)?.closest(".col");
+  let colEl=null;
+  for(const c of document.querySelectorAll(".col")){const r=c.getBoundingClientRect();if(e.clientX>=r.left&&e.clientX<=r.right){colEl=c;break;}}
   if(!colEl)return;
   const wrap=colEl.querySelector(".col-cards");
   const cards=[...wrap.querySelectorAll(".kcard:not(.dragging)")];
